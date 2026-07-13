@@ -84,7 +84,16 @@ public class Program
     {
         app.MapPost("/process-payment", async (HttpContext context) =>
         {
-            using var doc = await JsonDocument.ParseAsync(context.Request.Body);
+            JsonDocument? doc = null;
+            try
+            {
+                doc = await JsonDocument.ParseAsync(context.Request.Body);
+            }
+            catch (JsonException)
+            {
+                return Results.Json(new { success = false, error = "Invalid JSON body" }, statusCode: 400);
+            }
+            using var _ = doc;
             var root = doc.RootElement;
 
             string? Str(string name) =>

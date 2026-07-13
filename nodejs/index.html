@@ -202,10 +202,10 @@
 
           <!-- Success -->
           <div id="success-state" hidden>
-            <div class="gp-result-badge success">
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 13 4 4 10-10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div class="gp-result-badge success" id="result-badge">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true" id="result-icon"><path d="m5 13 4 4 10-10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
-            <h3>Payment captured</h3>
+            <h3 id="result-heading">Payment captured</h3>
             <div class="gp-receipt" id="receipt"></div>
 
             <!-- Shown only when the response carries a brand reference (COF flow) -->
@@ -278,9 +278,18 @@
     }
 
     function renderReceipt(d) {
+      // Only a CAPTURED outcome is a success; DECLINED (and anything else) renders negative.
+      const isCaptured = d.status === "CAPTURED";
+
+      $("result-badge").className = "gp-result-badge " + (isCaptured ? "success" : "decline");
+      $("result-icon").innerHTML = isCaptured
+        ? '<path d="m5 13 4 4 10-10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>'
+        : '<path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>';
+      $("result-heading").textContent = isCaptured ? "Payment captured" : "Payment declined";
+
       const rows = [
         ["Transaction ID", esc(d.transactionId)],
-        ["Status", `<span class="gp-badge gp-badge-success">${esc(d.status)}</span>`],
+        ["Status", `<span class="gp-badge ${isCaptured ? "gp-badge-success" : "gp-badge-error"}">${esc(d.status)}</span>`],
         ["Card", "•••• •••• •••• " + esc(d.cardLast4)],
         ["Brand", esc(d.brand)],
         ["Auth code", esc(d.authCode)],

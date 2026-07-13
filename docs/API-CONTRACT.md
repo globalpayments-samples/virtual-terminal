@@ -98,10 +98,13 @@ Response 200:
 ```
 `brandReference` may be null/omitted when not returned; it is included whenever the SDK response
 carries it (the response's card brand reference field). `status` comes from the SDK response
-message/status (expect `CAPTURED` in sandbox).
+message/status: `CAPTURED` for an approved charge, `DECLINED` for a soft decline (sandbox decline
+card) — a decline is still a successful gateway call, so it returns 200 with `success: true` and
+the same shape as above.
 
-Errors (declines, SDK ApiException) return 500 with
-`{ "success": false, "error": "<message>" }`. The PAN is never leaked in errors or logs.
+Only an actual API/SDK exception (`ApiException`, network/auth failure) returns 500 with
+`{ "success": false, "error": "<message>" }`. 400 is used for request validation failures (see
+above). The PAN is never leaked in errors or logs.
 
 ### Style rules (all languages)
 
@@ -123,9 +126,11 @@ Errors (declines, SDK ApiException) return 500 with
   - Fields: cardholder name, card number, expiry month/year, CVV, amount, currency (EUR/USD/GBP
     select), billing address block, and a "Store card for future merchant-initiated payments
     (COF)" checkbox.
-  - States: loading spinner on submit (`.gp-spinner`), success receipt (`.gp-receipt`,
-    transaction id, status badge, masked card, auth code, and brand reference callout when
-    present), error alert (`.gp-alert-error`).
+  - States: loading spinner on submit (`.gp-spinner`); result receipt (`.gp-receipt`, transaction
+    id, status badge, masked card, auth code, and brand reference callout when present) styled
+    success (`.gp-result-badge.success`, `.gp-badge-success`) when `status` is `CAPTURED` or
+    decline (`.gp-result-badge.decline`, `.gp-badge-error`) for any other status (chiefly
+    `DECLINED`); inline error alert (`.gp-alert-error`) only for actual request/API failures.
   - A short info alert explaining what MOTO is and why `entry_mode=MOTO` exempts SCA.
 - Vanilla JS in the page, no build step, no frameworks.
 

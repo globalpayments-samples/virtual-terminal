@@ -45,6 +45,15 @@ config.channel = Channel.CardNotPresent;
 config.environment = Environment.Test; // sandbox
 ServicesContainer.configureService(config);
 
+// Malformed JSON bodies otherwise fall through to Express's default HTML error page;
+// surface the same success:false envelope as every other error path instead.
+app.use((err, req, res, next) => {
+    if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
+        return res.status(400).json({ success: false, error: 'Invalid JSON body' });
+    }
+    next(err);
+});
+
 /**
  * Config endpoint — MOTO is server-side keyed entry, so there is no public key or
  * hosted fields to expose to the browser.
