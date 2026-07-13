@@ -14,6 +14,36 @@
       letter-spacing: var(--tracking-wide);
       margin: var(--gp-space-lg) 0 var(--gp-space-sm);
     }
+    .moto-section em {
+      font-style: normal; text-transform: none;
+      letter-spacing: var(--tracking-normal);
+      color: var(--text-muted); opacity: 0.85;
+    }
+    /* Label + trailing chip (detected card brand) on one baseline. */
+    .moto-label-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--gp-space-sm); margin-bottom: 7px; min-height: 22px;
+    }
+    .moto-label-row .gp-label { margin-bottom: 0; }
+    /* Three-up row for expiry month / expiry year / CVV. */
+    .moto-field-trio { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--gp-space-md); }
+    @media (max-width: 480px) { .moto-field-trio { grid-template-columns: 1fr; } }
+    /* Inside a grid row the gap is the spacer; the field's own margin would double it. */
+    .moto-field-trio .gp-field { margin-bottom: 0; }
+    @media (max-width: 480px) { .gp-field-row .gp-field { margin-bottom: 0; } }
+    /* Per-field inline validation message. */
+    .moto-err {
+      display: block; margin-top: var(--gp-space-xs);
+      font: var(--type-body-sm); font-size: var(--text-xs);
+      color: var(--error-ink);
+    }
+    .moto-err[hidden] { display: none; }
+    .gp-input[aria-invalid="true"],
+    .gp-select[aria-invalid="true"] { border-color: var(--gp-error); }
+    .gp-input[aria-invalid="true"]:focus,
+    .gp-select[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px var(--error-surface); }
+    .moto-hint { font: var(--type-body-sm); font-size: var(--text-xs); color: var(--text-muted); margin: var(--gp-space-xs) 0 0; }
+    #card_number, #exp_year, #cvv { font-family: var(--font-mono); }
     .moto-check {
       display: flex; align-items: flex-start; gap: 10px;
       margin-top: var(--gp-space-md);
@@ -22,7 +52,7 @@
     .moto-check input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--brand); flex-shrink: 0; }
     .moto-callout { margin-top: var(--gp-space-md); }
     .moto-callout code { word-break: break-all; }
-    .moto-note { font: var(--type-body-sm); color: var(--text-muted); margin: var(--gp-space-md) 0 0; }
+    #result-heading:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 4px; border-radius: var(--radius-sm); }
   </style>
 </head>
 <body>
@@ -73,9 +103,19 @@
           <p>Both post to <code>/process-payment</code>.</p>
         </div>
         <ol class="gp-flow">
-          <li><b>Standard MOTO</b>: a one-off keyed charge, no card storage.</li>
-          <li><b>MOTO + Credential on File</b>: same charge plus a stored-credential block; the
-            response returns a <code>brandReference</code> you persist to initiate later MITs.</li>
+          <li>
+            <div>
+              <strong>Standard MOTO</strong>
+              <span>A one-off keyed charge. Nothing is stored.</span>
+            </div>
+          </li>
+          <li>
+            <div>
+              <strong>MOTO + Credential on File</strong>
+              <span>The same charge plus a stored-credential block. The response returns a
+                <code>brandReference</code> you persist to initiate later MITs.</span>
+            </div>
+          </li>
         </ol>
 
         <!-- Sandbox test card (form is pre-filled with these) -->
@@ -99,21 +139,32 @@
             <p>Keyed entry. The agent types in the card details.</p>
           </div>
 
+          <!-- novalidate: the page runs its own validation so the messages match the API's rules. -->
           <form id="payment-form" novalidate>
             <div class="gp-field">
               <label class="gp-label" for="cardholder_name">Cardholder name</label>
-              <input class="gp-input" id="cardholder_name" name="cardholder_name" type="text" autocomplete="off" value="James Mason" required>
+              <input class="gp-input" id="cardholder_name" name="cardholder_name" type="text"
+                     autocomplete="off" aria-describedby="cardholder_name-err" value="James Mason" required>
+              <span class="moto-err" id="cardholder_name-err" hidden></span>
             </div>
 
+            <!-- autocomplete="off" is deliberate: the agent keys in someone else's card, so the
+                 browser must never offer to autofill the agent's own saved card. -->
             <div class="gp-field">
-              <label class="gp-label" for="card_number">Card number</label>
-              <input class="gp-input" id="card_number" name="card_number" type="text" inputmode="numeric" autocomplete="off" value="4263970000005262" required>
+              <div class="moto-label-row">
+                <label class="gp-label" for="card_number">Card number</label>
+                <span class="gp-badge gp-badge-neutral" id="card-brand" aria-live="polite" hidden></span>
+              </div>
+              <input class="gp-input" id="card_number" name="card_number" type="text"
+                     inputmode="numeric" autocomplete="off" spellcheck="false"
+                     aria-describedby="card_number-err" value="4263970000005262" required>
+              <span class="moto-err" id="card_number-err" hidden></span>
             </div>
 
-            <div class="gp-field-row">
+            <div class="moto-field-trio">
               <div class="gp-field">
                 <label class="gp-label" for="exp_month">Expiry month</label>
-                <select class="gp-select" id="exp_month" name="exp_month" required>
+                <select class="gp-select" id="exp_month" name="exp_month" aria-describedby="exp_year-err" required>
                   <option>01</option><option>02</option><option>03</option><option>04</option>
                   <option>05</option><option>06</option><option>07</option><option>08</option>
                   <option selected>09</option><option>10</option><option>11</option><option>12</option>
@@ -121,14 +172,34 @@
               </div>
               <div class="gp-field">
                 <label class="gp-label" for="exp_year">Expiry year</label>
-                <select class="gp-select" id="exp_year" name="exp_year" required></select>
+                <input class="gp-input" id="exp_year" name="exp_year" type="text"
+                       inputmode="numeric" autocomplete="off" maxlength="4" placeholder="YYYY"
+                       aria-describedby="exp_year-err" required>
+                <!-- Expiry is validated as a pair (month + year must be in the future); the one
+                     message sits under the year, and both halves get aria-invalid. -->
+                <span class="moto-err" id="exp_year-err" hidden></span>
+              </div>
+              <div class="gp-field">
+                <label class="gp-label" for="cvv">CVV</label>
+                <input class="gp-input" id="cvv" name="cvv" type="text"
+                       inputmode="numeric" autocomplete="off" maxlength="3"
+                       aria-describedby="cvv-err" value="852" required>
+                <span class="moto-err" id="cvv-err" hidden></span>
               </div>
             </div>
 
-            <div class="gp-field-row">
+            <div class="gp-field-row" style="margin-top: var(--gp-space-md)">
               <div class="gp-field">
-                <label class="gp-label" for="cvv">CVV</label>
-                <input class="gp-input" id="cvv" name="cvv" type="text" inputmode="numeric" autocomplete="off" maxlength="4" value="852" required>
+                <label class="gp-label" for="amount">Amount</label>
+                <div class="gp-input-amount">
+                  <span class="gp-amount-prefix" id="cur-symbol" aria-hidden="true">€</span>
+                  <!-- type=text + inputmode=decimal: number spinners and scroll-wheel edits have no
+                       place on a money field. -->
+                  <input class="gp-input" id="amount" name="amount" type="text"
+                         inputmode="decimal" autocomplete="off" aria-describedby="amount-err"
+                         value="49.99" required>
+                </div>
+                <span class="moto-err" id="amount-err" hidden></span>
               </div>
               <div class="gp-field">
                 <label class="gp-label" for="currency">Currency</label>
@@ -140,15 +211,7 @@
               </div>
             </div>
 
-            <div class="gp-field">
-              <label class="gp-label" for="amount">Amount</label>
-              <div class="gp-input-amount">
-                <span class="gp-amount-prefix" id="cur-symbol">€</span>
-                <input class="gp-input" id="amount" name="amount" type="number" min="0.01" step="0.01" value="49.99" required>
-              </div>
-            </div>
-
-            <p class="moto-section">Billing address</p>
+            <p class="moto-section" id="billing-legend">Billing address <em>· optional, improves AVS matching</em></p>
             <div class="gp-field">
               <label class="gp-label" for="line1">Address line 1</label>
               <input class="gp-input" id="line1" name="line1" type="text" autocomplete="off" value="Apartment 852">
@@ -169,8 +232,37 @@
                 <input class="gp-input" id="postal_code" name="postal_code" type="text" autocomplete="off" value="50001">
               </div>
               <div class="gp-field">
-                <label class="gp-label" for="country">Country (ISO numeric)</label>
-                <input class="gp-input" id="country" name="country" type="text" inputmode="numeric" autocomplete="off" value="840">
+                <label class="gp-label" for="country">Country</label>
+                <!-- Option values are the ISO 3166-1 numeric codes the API expects; the agent
+                     picks a country, not a number. -->
+                <select class="gp-select" id="country" name="country" aria-describedby="country-hint">
+                  <option value="036">Australia</option>
+                  <option value="040">Austria</option>
+                  <option value="056">Belgium</option>
+                  <option value="076">Brazil</option>
+                  <option value="124">Canada</option>
+                  <option value="208">Denmark</option>
+                  <option value="246">Finland</option>
+                  <option value="250">France</option>
+                  <option value="276">Germany</option>
+                  <option value="372">Ireland</option>
+                  <option value="380">Italy</option>
+                  <option value="392">Japan</option>
+                  <option value="484">Mexico</option>
+                  <option value="528">Netherlands</option>
+                  <option value="554">New Zealand</option>
+                  <option value="578">Norway</option>
+                  <option value="616">Poland</option>
+                  <option value="620">Portugal</option>
+                  <option value="702">Singapore</option>
+                  <option value="724">Spain</option>
+                  <option value="752">Sweden</option>
+                  <option value="756">Switzerland</option>
+                  <option value="784">United Arab Emirates</option>
+                  <option value="826">United Kingdom</option>
+                  <option value="840" selected>United States</option>
+                </select>
+                <p class="moto-hint" id="country-hint">Sent as ISO numeric <code id="country-code">840</code></p>
               </div>
             </div>
 
@@ -193,19 +285,19 @@
         </div>
 
         <!-- RESULT VIEW -->
-        <div id="panel-result" class="gp-result" hidden>
+        <div id="panel-result" class="gp-result" role="status" aria-live="polite" hidden>
           <!-- Loading -->
           <div id="spinner-state">
             <div class="gp-spinner"></div>
             <p>Contacting Global Payments…</p>
           </div>
 
-          <!-- Success -->
+          <!-- Outcome: CAPTURED renders success, anything else (chiefly DECLINED) renders decline -->
           <div id="success-state" hidden>
             <div class="gp-result-badge success" id="result-badge">
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true" id="result-icon"><path d="m5 13 4 4 10-10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
             </div>
-            <h3 id="result-heading">Payment captured</h3>
+            <h3 id="result-heading" tabindex="-1">Payment captured</h3>
             <div class="gp-receipt" id="receipt"></div>
 
             <!-- Shown only when the response carries a brand reference (COF flow) -->
@@ -241,23 +333,189 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const SYMBOL = { EUR: "€", USD: "$", GBP: "£" };
+    const digitsOf = (s) => String(s).replace(/\D/g, "");
 
-    // Populate expiry years (this year .. +10); pre-select a near-future year.
-    (function () {
-      const now = new Date().getFullYear();
-      const sel = $("exp_year");
-      for (let y = now; y <= now + 10; y++) {
-        const opt = new Option(y, y, false, y === now + 1);
-        sel.add(opt);
+    /* ---- Card brands ------------------------------------------------------
+       Enough IIN detection to drive the three things the UI needs: digit
+       grouping, the accepted PAN lengths, and the CVV length. */
+    const BRANDS = [
+      { name: "American Express", iin: /^3[47]/,                lengths: [15],     cvv: [4], gaps: [4, 10] },
+      { name: "Visa",             iin: /^4/,                    lengths: [16, 19], cvv: [3], gaps: [4, 8, 12, 16] },
+      { name: "Mastercard",       iin: /^(5[1-5]|2[2-7])/,      lengths: [16],     cvv: [3], gaps: [4, 8, 12] },
+      { name: "Discover",         iin: /^(6011|64[4-9]|65)/,    lengths: [16, 19], cvv: [3], gaps: [4, 8, 12, 16] },
+    ];
+    const UNKNOWN_BRAND = { name: "", lengths: [12, 13, 14, 15, 16, 17, 18, 19], cvv: [3, 4], gaps: [4, 8, 12, 16] };
+    const brandOf = (pan) => (pan ? BRANDS.find((b) => b.iin.test(pan)) : null) || UNKNOWN_BRAND;
+    const maxLenOf = (brand) => Math.max(...brand.lengths);
+
+    // 4-4-4-4 (or 4-6-5 for Amex) as you type.
+    function groupPan(pan, gaps) {
+      let out = "", from = 0;
+      for (const gap of gaps) {
+        if (pan.length > gap) { out += pan.slice(from, gap) + " "; from = gap; }
       }
-    })();
+      return out + pan.slice(from);
+    }
 
-    // Amount prefix follows the selected currency.
+    function luhnOk(pan) {
+      let sum = 0, double = false;
+      for (let i = pan.length - 1; i >= 0; i--) {
+        let d = +pan[i];
+        if (double) { d *= 2; if (d > 9) d -= 9; }
+        sum += d;
+        double = !double;
+      }
+      return pan.length > 0 && sum % 10 === 0;
+    }
+
+    // "28" → "2028"; "2028" → "2028". The API contract wants 4 digits.
+    function normalizeYear(raw) {
+      const y = digitsOf(raw);
+      return y.length === 2 ? String(new Date().getFullYear()).slice(0, 2) + y : y;
+    }
+
+    /* ---- Validation -------------------------------------------------------
+       One rule per field id; "" means valid. Runs on blur and on submit, and
+       re-runs on input only for a field that is already showing an error. */
+    const RULES = {
+      cardholder_name: (v) =>
+        v.trim().length >= 2 ? "" : "Enter the name printed on the card.",
+
+      card_number: (v) => {
+        const pan = digitsOf(v);
+        if (!pan) return "Enter the card number.";
+        const brand = brandOf(pan);
+        if (!brand.lengths.includes(pan.length)) {
+          return brand.name
+            ? `A ${brand.name} number is ${brand.lengths.join(" or ")} digits.`
+            : "That card number is not a valid length.";
+        }
+        if (!luhnOk(pan)) return "That card number is not valid. Check the digits with the caller.";
+        return "";
+      },
+
+      // Month and year are validated together; the message hangs off the year field.
+      exp_year: (v) => {
+        const raw = digitsOf(v);
+        if (!raw) return "Enter the expiry year.";
+        if (raw.length !== 2 && raw.length !== 4) return "Enter the year as 2 or 4 digits, e.g. 28 or 2028.";
+        const year = +normalizeYear(raw);
+        const month = +$("exp_month").value;
+        const now = new Date();
+        if (year < now.getFullYear()) return "That expiry date has already passed.";
+        if (year > now.getFullYear() + 20) return "Cards do not expire that far ahead. Check the year.";
+        if (year === now.getFullYear() && month < now.getMonth() + 1) return "That expiry date has already passed.";
+        return "";
+      },
+
+      cvv: (v) => {
+        const cvv = digitsOf(v);
+        const brand = brandOf(digitsOf($("card_number").value));
+        if (!cvv) return "Enter the security code.";
+        if (!brand.cvv.includes(cvv.length)) {
+          return brand.name === "American Express"
+            ? "American Express security codes are 4 digits."
+            : `The security code is ${brand.cvv.join(" or ")} digits.`;
+        }
+        return "";
+      },
+
+      amount: (v) => {
+        const a = v.trim().replace(",", ".");
+        if (!a) return "Enter an amount.";
+        if (!/^\d{1,7}(\.\d{1,2})?$/.test(a)) return "Enter an amount like 49.99.";
+        if (parseFloat(a) <= 0) return "Enter an amount greater than zero.";
+        return "";
+      },
+    };
+
+    function setFieldError(id, message) {
+      const field = $(id);
+      const err = $(id + "-err");
+      field.setAttribute("aria-invalid", message ? "true" : "false");
+      // The expiry is one control split in two: flag both halves.
+      if (id === "exp_year") $("exp_month").setAttribute("aria-invalid", message ? "true" : "false");
+      err.textContent = message;
+      err.hidden = !message;
+    }
+
+    function validateField(id) {
+      const message = RULES[id]($(id).value);
+      setFieldError(id, message);
+      return !message;
+    }
+
+    function clearValidation() {
+      Object.keys(RULES).forEach((id) => setFieldError(id, ""));
+      $("error").hidden = true;
+    }
+
+    Object.keys(RULES).forEach((id) => {
+      const field = $(id);
+      field.addEventListener("blur", () => validateField(id));
+      field.addEventListener("input", () => {
+        if (field.getAttribute("aria-invalid") === "true") validateField(id);
+      });
+    });
+    // Changing the month can fix (or break) a same-year expiry that is already flagged.
+    $("exp_month").addEventListener("change", () => {
+      if ($("exp_year").getAttribute("aria-invalid") === "true") validateField("exp_year");
+    });
+
+    /* ---- Live formatting --------------------------------------------------- */
+    const cardInput = $("card_number");
+    const cvvInput = $("cvv");
+    const brandChip = $("card-brand");
+
+    function formatCard() {
+      const start = cardInput.selectionStart;
+      const digitsBeforeCaret = digitsOf(cardInput.value.slice(0, start)).length;
+      const brand = brandOf(digitsOf(cardInput.value));
+      const pan = digitsOf(cardInput.value).slice(0, maxLenOf(brand));
+      cardInput.value = groupPan(pan, brand.gaps);
+
+      // Put the caret back after the same number of digits (survives paste and mid-string edits).
+      if (document.activeElement === cardInput) {
+        let i = 0, seen = 0;
+        while (i < cardInput.value.length && seen < digitsBeforeCaret) {
+          if (/\d/.test(cardInput.value[i])) seen++;
+          i++;
+        }
+        cardInput.setSelectionRange(i, i);
+      }
+
+      brandChip.textContent = brand.name;
+      brandChip.hidden = !brand.name;
+      cvvInput.maxLength = Math.max(...brand.cvv);
+    }
+    // Pasting "4263-9700 0000 5262" or a PAN with spaces lands here and is normalized.
+    cardInput.addEventListener("input", formatCard);
+
+    // Digits only, whatever the agent types or pastes.
+    [cvvInput, $("exp_year")].forEach((el) => {
+      el.addEventListener("input", () => {
+        const clean = digitsOf(el.value).slice(0, el.maxLength);
+        if (el.value !== clean) el.value = clean;
+      });
+    });
+
+    // Money: accept a comma as the decimal separator, settle to 2 dp on blur.
+    const amountInput = $("amount");
+    amountInput.addEventListener("blur", () => {
+      const a = amountInput.value.trim().replace(",", ".");
+      if (/^\d{1,7}(\.\d{1,2})?$/.test(a) && parseFloat(a) > 0) amountInput.value = parseFloat(a).toFixed(2);
+    });
+
     const currency = $("currency");
     const syncSymbol = () => { $("cur-symbol").textContent = SYMBOL[currency.value]; };
     currency.addEventListener("change", syncSymbol);
-    syncSymbol();
 
+    const country = $("country");
+    const syncCountryCode = () => { $("country-code").textContent = country.value; };
+    country.addEventListener("change", syncCountryCode);
+
+    /* ---- Panels ------------------------------------------------------------ */
+    const form = $("payment-form");
     const panelForm = $("panel-form");
     const panelResult = $("panel-result");
     const spinnerState = $("spinner-state");
@@ -275,6 +533,10 @@
       successState.hidden = true;
       spinnerState.hidden = false;
       panelResult.hidden = false;
+    }
+    function showAlert(message) {
+      $("error-msg").textContent = message;
+      $("error").hidden = false;
     }
 
     function renderReceipt(d) {
@@ -310,29 +572,40 @@
 
       spinnerState.hidden = true;
       successState.hidden = false;
+      $("result-heading").focus();
     }
 
     function esc(v) {
       return String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     }
 
-    $("payment-form").addEventListener("submit", async (e) => {
+    form.addEventListener("submit", async (e) => {
       e.preventDefault();
 
+      // Nothing leaves the browser until every field passes.
+      const invalid = Object.keys(RULES).filter((id) => !validateField(id));
+      if (invalid.length) {
+        showAlert("Check the highlighted fields and try again.");
+        $(invalid[0]).focus();
+        return;
+      }
+
+      // Normalized to the shape /process-payment expects: bare PAN digits, 2-digit month,
+      // 4-digit year, decimal-string amount, ISO numeric country.
       const payload = {
-        card_number: $("card_number").value.replace(/\s+/g, ""),
+        card_number: digitsOf($("card_number").value),
         exp_month: $("exp_month").value,
-        exp_year: $("exp_year").value,
-        cvv: $("cvv").value,
-        cardholder_name: $("cardholder_name").value,
-        amount: $("amount").value,
+        exp_year: normalizeYear($("exp_year").value),
+        cvv: digitsOf($("cvv").value),
+        cardholder_name: $("cardholder_name").value.trim(),
+        amount: parseFloat($("amount").value.replace(",", ".")).toFixed(2),
         currency: currency.value,
         billing_address: {
-          line1: $("line1").value,
-          city: $("city").value,
-          state: $("state").value,
-          postal_code: $("postal_code").value,
-          country: $("country").value,
+          line1: $("line1").value.trim(),
+          city: $("city").value.trim(),
+          state: $("state").value.trim(),
+          postal_code: $("postal_code").value.trim(),
+          country: country.value,
         },
         store_card: $("store_card").checked,
       };
@@ -349,12 +622,29 @@
         renderReceipt(body.data);
       } catch (err) {
         showForm();
-        $("error-msg").textContent = err.message;
-        $("error").hidden = false;
+        showAlert(err.message || "Could not reach the payment service. Try again.");
+        $("submit-btn").focus();
       }
     });
 
-    $("again-btn").addEventListener("click", showForm);
+    // Full reset: values back to the sandbox defaults, every error and aria state cleared.
+    $("again-btn").addEventListener("click", () => {
+      form.reset();
+      clearValidation();
+      initForm();
+      showForm();
+      $("cardholder_name").focus();
+    });
+
+    function initForm() {
+      // Default expiry: next year, and as the reset value so "Run another payment" restores it.
+      $("exp_year").defaultValue = String(new Date().getFullYear() + 1);
+      $("exp_year").value = $("exp_year").defaultValue;
+      formatCard();
+      syncSymbol();
+      syncCountryCode();
+    }
+    initForm();
   </script>
 </body>
 </html>
