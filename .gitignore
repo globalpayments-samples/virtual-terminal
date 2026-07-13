@@ -1,0 +1,3 @@
+# Local env file consumed by docker-compose (copied from a language's .env.sample)
+.env
+.DS_Store

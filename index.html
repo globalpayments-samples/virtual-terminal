@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MOTO Payments — GP-API Sample</title>
+    <link rel="stylesheet" href="gp-checkout.css">
+</head>
+<body>
+    <header class="gp-header">
+        <div class="gp-container gp-header-inner">
+            <a href="/" class="gp-logo">MOTO Payments</a>
+            <nav class="gp-header-nav">
+                <a href="https://developer.globalpayments.com/docs/moto">MOTO Docs</a>
+                <a href="https://developer.globalpayments.com/api/references-overview">API Reference</a>
+            </nav>
+        </div>
+    </header>
+
+    <div class="gp-container gp-intro">
+        <h1 class="gp-page-title">MOTO Payments — GP-API Sample</h1>
+        <p class="gp-page-subtitle">
+            A Global Payments sample project demonstrating Mail Order / Telephone Order (MOTO)
+            payments via GP-API. An agent-facing virtual terminal keys in a card, the server
+            charges it with <code>entry_mode = MOTO</code> — exempting it from SCA/3DS2 — and can
+            optionally store the credential (COF) for later merchant-initiated charges.
+        </p>
+
+        <div class="gp-alert gp-alert-info">
+            <strong>What is MOTO?</strong> Mail Order / Telephone Order transactions are entered by
+            an agent on behalf of a customer (phone, IVR) rather than typed by the cardholder.
+            Correctly flagged MOTO transactions are out of scope for Strong Customer Authentication
+            under PSD2. See the
+            <a href="https://developer.globalpayments.com/docs/moto">GP-API MOTO documentation</a>.
+        </div>
+    </div>
+
+    <div class="gp-container">
+        <div class="gp-card">
+            <div class="gp-card-head">
+                <h3>.NET</h3>
+                <p>ASP.NET Core · port 8001</p>
+            </div>
+            <a class="gp-btn gp-btn-primary gp-btn-full" href="http://localhost:8001">Open dotnet →</a>
+        </div>
+
+        <div class="gp-card">
+            <div class="gp-card-head">
+                <h3>Node.js</h3>
+                <p>Express.js · port 8002</p>
+            </div>
+            <a class="gp-btn gp-btn-primary gp-btn-full" href="http://localhost:8002">Open nodejs →</a>
+        </div>
+
+        <div class="gp-card">
+            <div class="gp-card-head">
+                <h3>PHP</h3>
+                <p>PHP built-in server · port 8003</p>
+            </div>
+            <a class="gp-btn gp-btn-primary gp-btn-full" href="http://localhost:8003">Open php →</a>
+        </div>
+
+        <div class="gp-card">
+            <div class="gp-card-head">
+                <h3>Java</h3>
+                <p>Jakarta EE servlet · port 8004</p>
+            </div>
+            <a class="gp-btn gp-btn-primary gp-btn-full" href="http://localhost:8004">Open java →</a>
+        </div>
+    </div>
+
+    <footer class="gp-footer">
+        <div class="gp-container gp-footer-inner">
+            <p class="gp-footer-copy">GP-API MOTO sample project.</p>
+            <nav class="gp-footer-nav">
+                <a href="https://developer.globalpayments.com/docs/moto">MOTO Docs</a>
+                <a href="https://developer.globalpayments.com/">Documentation</a>
+            </nav>
+        </div>
+    </footer>
+</body>
+</html>

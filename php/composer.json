@@ -1,0 +1,8 @@
+{
+    "name": "globalpayments/moto-payments-php",
+    "description": "MOTO payments example using GP-API (Unified Payments) and PHP",
+    "require": {
+        "globalpayments/php-sdk": "^13.3",
+        "vlucas/phpdotenv": "^5.5"
+    }
+}

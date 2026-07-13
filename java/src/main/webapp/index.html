@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MOTO Virtual Terminal · Global Payments</title>
+  <!-- Self-contained design system: tokens, DM Sans/DM Mono fonts, every utility class. -->
+  <link rel="stylesheet" href="gp-checkout.css">
+  <style>
+    /* Page-specific gaps the utility classes don't cover; all values are design tokens. */
+    .moto-section {
+      font: var(--type-label); font-size: var(--text-2xs);
+      color: var(--text-muted); text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      margin: var(--gp-space-lg) 0 var(--gp-space-sm);
+    }
+    .moto-check {
+      display: flex; align-items: flex-start; gap: 10px;
+      margin-top: var(--gp-space-md);
+      font: var(--type-body-sm); color: var(--text-body);
+    }
+    .moto-check input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--brand); flex-shrink: 0; }
+    .moto-callout { margin-top: var(--gp-space-md); }
+    .moto-callout code { word-break: break-all; }
+    .moto-note { font: var(--type-body-sm); color: var(--text-muted); margin: var(--gp-space-md) 0 0; }
+  </style>
+</head>
+<body>
+  <!-- Header ------------------------------------------------------------- -->
+  <header class="gp-header">
+    <div class="gp-container gp-header-inner">
+      <a class="gp-logo" href="https://developer.globalpayments.com/">
+        <img src="https://globalpayments-samples.github.io/assets/img/GP_favicon.svg" alt="Global Payments" onerror="this.style.display='none'">
+        Global <strong>Payments</strong>
+      </a>
+      <nav class="gp-header-nav">
+        <a href="https://developer.globalpayments.com/">Documentation</a>
+        <a href="https://developer.globalpayments.com/api/references-overview">API Reference</a>
+        <a href="https://developer.globalpayments.com/docs/integration-options/sdk/overview">SDKs</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Intro -------------------------------------------------------------- -->
+  <div class="gp-container gp-intro">
+    <span class="gp-eyebrow">GP-API · Sandbox</span>
+    <h1 class="gp-page-title">MOTO Virtual Terminal</h1>
+    <p class="gp-page-subtitle">
+      Keyed-entry card payments for Mail Order / Telephone Order. The agent takes the card
+      details over the phone or by mail and charges them here.
+    </p>
+
+    <!-- MOTO / SCA explainer -->
+    <div class="gp-alert gp-alert-info" style="margin-top: var(--gp-space-lg)">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.4"/><path d="M8 7v4M8 5h.01" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      <span>
+        <strong>Why MOTO?</strong> This charge is sent with <code>entry_mode = MOTO</code>, which
+        tells the network the cardholder is not present at a browser. MOTO transactions are
+        <strong>out of scope for SCA/3-D Secure</strong>, so no challenge flow is triggered.
+        Tick the box below to also store the credential (COF) for future merchant-initiated payments.
+      </span>
+    </div>
+  </div>
+
+  <!-- Main --------------------------------------------------------------- -->
+  <main class="gp-container gp-main">
+    <div class="gp-checkout-grid">
+
+      <!-- Left: helper panel -->
+      <div class="gp-card">
+        <div class="gp-card-head">
+          <h3>Two MOTO flows</h3>
+          <p>Both post to <code>/process-payment</code>.</p>
+        </div>
+        <ol class="gp-flow">
+          <li><b>Standard MOTO</b>: a one-off keyed charge, no card storage.</li>
+          <li><b>MOTO + Credential on File</b>: same charge plus a stored-credential block; the
+            response returns a <code>brandReference</code> you persist to initiate later MITs.</li>
+        </ol>
+
+        <!-- Sandbox test card (form is pre-filled with these) -->
+        <div class="gp-testcard">
+          <div class="gp-testcard-top">
+            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="4" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M2 7h12" stroke="currentColor" stroke-width="1.3"/></svg>
+            Sandbox test card
+          </div>
+          <div class="gp-testcard-num">4263 9700 0000 5262</div>
+          <p class="gp-testcard-meta">Any future expiry · CVV 852 → expect <b>CAPTURED</b></p>
+        </div>
+      </div>
+
+      <!-- Right: virtual terminal -->
+      <div class="gp-card">
+
+        <!-- FORM VIEW -->
+        <div id="panel-form">
+          <div class="gp-card-head">
+            <h3>Charge a card</h3>
+            <p>Keyed entry. The agent types in the card details.</p>
+          </div>
+
+          <form id="payment-form" novalidate>
+            <div class="gp-field">
+              <label class="gp-label" for="cardholder_name">Cardholder name</label>
+              <input class="gp-input" id="cardholder_name" name="cardholder_name" type="text" autocomplete="off" value="James Mason" required>
+            </div>
+
+            <div class="gp-field">
+              <label class="gp-label" for="card_number">Card number</label>
+              <input class="gp-input" id="card_number" name="card_number" type="text" inputmode="numeric" autocomplete="off" value="4263970000005262" required>
+            </div>
+
+            <div class="gp-field-row">
+              <div class="gp-field">
+                <label class="gp-label" for="exp_month">Expiry month</label>
+                <select class="gp-select" id="exp_month" name="exp_month" required>
+                  <option>01</option><option>02</option><option>03</option><option>04</option>
+                  <option>05</option><option>06</option><option>07</option><option>08</option>
+                  <option selected>09</option><option>10</option><option>11</option><option>12</option>
+                </select>
+              </div>
+              <div class="gp-field">
+                <label class="gp-label" for="exp_year">Expiry year</label>
+                <select class="gp-select" id="exp_year" name="exp_year" required></select>
+              </div>
+            </div>
+
+            <div class="gp-field-row">
+              <div class="gp-field">
+                <label class="gp-label" for="cvv">CVV</label>
+                <input class="gp-input" id="cvv" name="cvv" type="text" inputmode="numeric" autocomplete="off" maxlength="4" value="852" required>
+              </div>
+              <div class="gp-field">
+                <label class="gp-label" for="currency">Currency</label>
+                <select class="gp-select" id="currency" name="currency">
+                  <option value="EUR" selected>EUR</option>
+                  <option value="USD">USD</option>
+                  <option value="GBP">GBP</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="gp-field">
+              <label class="gp-label" for="amount">Amount</label>
+              <div class="gp-input-amount">
+                <span class="gp-amount-prefix" id="cur-symbol">€</span>
+                <input class="gp-input" id="amount" name="amount" type="number" min="0.01" step="0.01" value="49.99" required>
+              </div>
+            </div>
+
+            <p class="moto-section">Billing address</p>
+            <div class="gp-field">
+              <label class="gp-label" for="line1">Address line 1</label>
+              <input class="gp-input" id="line1" name="line1" type="text" autocomplete="off" value="Apartment 852">
+            </div>
+            <div class="gp-field-row">
+              <div class="gp-field">
+                <label class="gp-label" for="city">City</label>
+                <input class="gp-input" id="city" name="city" type="text" autocomplete="off" value="Chicago">
+              </div>
+              <div class="gp-field">
+                <label class="gp-label" for="state">State / region</label>
+                <input class="gp-input" id="state" name="state" type="text" autocomplete="off" value="IL">
+              </div>
+            </div>
+            <div class="gp-field-row">
+              <div class="gp-field">
+                <label class="gp-label" for="postal_code">Postal code</label>
+                <input class="gp-input" id="postal_code" name="postal_code" type="text" autocomplete="off" value="50001">
+              </div>
+              <div class="gp-field">
+                <label class="gp-label" for="country">Country (ISO numeric)</label>
+                <input class="gp-input" id="country" name="country" type="text" inputmode="numeric" autocomplete="off" value="840">
+              </div>
+            </div>
+
+            <!-- COF: store the credential for future merchant-initiated payments -->
+            <label class="moto-check">
+              <input type="checkbox" id="store_card" name="store_card">
+              <span>Store card for future merchant-initiated payments (COF)</span>
+            </label>
+
+            <!-- Inline error (keeps the form visible so the agent can correct and retry) -->
+            <div class="gp-alert gp-alert-error" id="error" role="alert" style="margin-top: var(--gp-space-lg)" hidden>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.4"/><path d="M8 5v4M8 11h.01" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+              <span id="error-msg"></span>
+            </div>
+
+            <button class="gp-btn gp-btn-primary gp-btn-full" id="submit-btn" type="submit" style="margin-top: var(--gp-space-lg)">
+              Charge card
+            </button>
+          </form>
+        </div>
+
+        <!-- RESULT VIEW -->
+        <div id="panel-result" class="gp-result" hidden>
+          <!-- Loading -->
+          <div id="spinner-state">
+            <div class="gp-spinner"></div>
+            <p>Contacting Global Payments…</p>
+          </div>
+
+          <!-- Success -->
+          <div id="success-state" hidden>
+            <div class="gp-result-badge success">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 13 4 4 10-10" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            <h3>Payment captured</h3>
+            <div class="gp-receipt" id="receipt"></div>
+
+            <!-- Shown only when the response carries a brand reference (COF flow) -->
+            <div class="gp-alert gp-alert-info moto-callout" id="brand-ref" hidden>
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2.5" y="4" width="11" height="8" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M2.5 6.5h11" stroke="currentColor" stroke-width="1.3"/></svg>
+              <span>
+                <strong>Store this brand reference</strong> to initiate future merchant-initiated (MIT)
+                transactions on this credential: <code id="brand-ref-val"></code>
+              </span>
+            </div>
+
+            <div class="gp-result-actions">
+              <button class="gp-btn gp-btn-secondary" id="again-btn" type="button">Run another payment</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer ------------------------------------------------------------- -->
+  <footer class="gp-footer">
+    <div class="gp-container gp-footer-inner">
+      <p class="gp-footer-copy">© 2025 Global Payments Inc. · MOTO GP-API sample</p>
+      <nav class="gp-footer-nav">
+        <a href="https://developer.globalpayments.com/">Documentation</a>
+        <a href="https://developer.globalpayments.com/api/references-overview">API Reference</a>
+      </nav>
+    </div>
+  </footer>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const SYMBOL = { EUR: "€", USD: "$", GBP: "£" };
+
+    // Populate expiry years (this year .. +10); pre-select a near-future year.
+    (function () {
+      const now = new Date().getFullYear();
+      const sel = $("exp_year");
+      for (let y = now; y <= now + 10; y++) {
+        const opt = new Option(y, y, false, y === now + 1);
+        sel.add(opt);
+      }
+    })();
+
+    // Amount prefix follows the selected currency.
+    const currency = $("currency");
+    const syncSymbol = () => { $("cur-symbol").textContent = SYMBOL[currency.value]; };
+    currency.addEventListener("change", syncSymbol);
+    syncSymbol();
+
+    const panelForm = $("panel-form");
+    const panelResult = $("panel-result");
+    const spinnerState = $("spinner-state");
+    const successState = $("success-state");
+
+    function showForm() {
+      panelResult.hidden = true;
+      panelForm.hidden = false;
+      $("submit-btn").disabled = false;
+    }
+    function showSpinner() {
+      $("error").hidden = true;
+      $("submit-btn").disabled = true;
+      panelForm.hidden = true;
+      successState.hidden = true;
+      spinnerState.hidden = false;
+      panelResult.hidden = false;
+    }
+
+    function renderReceipt(d) {
+      const rows = [
+        ["Transaction ID", esc(d.transactionId)],
+        ["Status", `<span class="gp-badge gp-badge-success">${esc(d.status)}</span>`],
+        ["Card", "•••• •••• •••• " + esc(d.cardLast4)],
+        ["Brand", esc(d.brand)],
+        ["Auth code", esc(d.authCode)],
+        ["Amount", esc(d.amount) + " " + esc(d.currency)],
+        ["Reference", esc(d.reference)],
+      ];
+      $("receipt").innerHTML = rows
+        .map(([k, v]) => `<div class="gp-receipt-row"><span class="k">${k}</span><span class="v">${v}</span></div>`)
+        .join("");
+
+      // brandReference is only present on the Credential-on-File flow.
+      if (d.brandReference) {
+        $("brand-ref-val").textContent = d.brandReference;
+        $("brand-ref").hidden = false;
+      } else {
+        $("brand-ref").hidden = true;
+      }
+
+      spinnerState.hidden = true;
+      successState.hidden = false;
+    }
+
+    function esc(v) {
+      return String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    }
+
+    $("payment-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+
+      const payload = {
+        card_number: $("card_number").value.replace(/\s+/g, ""),
+        exp_month: $("exp_month").value,
+        exp_year: $("exp_year").value,
+        cvv: $("cvv").value,
+        cardholder_name: $("cardholder_name").value,
+        amount: $("amount").value,
+        currency: currency.value,
+        billing_address: {
+          line1: $("line1").value,
+          city: $("city").value,
+          state: $("state").value,
+          postal_code: $("postal_code").value,
+          country: $("country").value,
+        },
+        store_card: $("store_card").checked,
+      };
+
+      showSpinner();
+      try {
+        const res = await fetch("/process-payment", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const body = await res.json();
+        if (!res.ok || !body.success) throw new Error(body.error || "Payment failed.");
+        renderReceipt(body.data);
+      } catch (err) {
+        showForm();
+        $("error-msg").textContent = err.message;
+        $("error").hidden = false;
+      }
+    });
+
+    $("again-btn").addEventListener("click", showForm);
+  </script>
+</body>
+</html>

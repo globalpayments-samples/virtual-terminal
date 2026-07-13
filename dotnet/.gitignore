@@ -1,0 +1,10 @@
+## .NET Core
+.env
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+*.vs/
+*.vscode/
+*.idea/

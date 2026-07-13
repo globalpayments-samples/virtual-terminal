@@ -1,0 +1,82 @@
+services:
+  dotnet:
+    build:
+      context: ./dotnet
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8000"
+    environment:
+      - ASPNETCORE_URLS=http://+:8000
+      - GP_API_APP_ID=${GP_API_APP_ID}
+      - GP_API_APP_KEY=${GP_API_APP_KEY}
+      - GP_API_COUNTRY=${GP_API_COUNTRY:-IE}
+    networks:
+      - payments
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/config"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  nodejs:
+    build:
+      context: ./nodejs
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8000"
+    environment:
+      - PORT=8000
+      - GP_API_APP_ID=${GP_API_APP_ID}
+      - GP_API_APP_KEY=${GP_API_APP_KEY}
+      - GP_API_COUNTRY=${GP_API_COUNTRY:-IE}
+    networks:
+      - payments
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8000/config"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  php:
+    build:
+      context: ./php
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8000"
+    environment:
+      - GP_API_APP_ID=${GP_API_APP_ID}
+      - GP_API_APP_KEY=${GP_API_APP_KEY}
+      - GP_API_COUNTRY=${GP_API_COUNTRY:-IE}
+    networks:
+      - payments
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/config"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  java:
+    build:
+      context: ./java
+      dockerfile: Dockerfile
+    ports:
+      - "8004:8000"
+    environment:
+      - GP_API_APP_ID=${GP_API_APP_ID}
+      - GP_API_APP_KEY=${GP_API_APP_KEY}
+      - GP_API_COUNTRY=${GP_API_COUNTRY:-IE}
+    networks:
+      - payments
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/config"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+
+networks:
+  payments:
+    driver: bridge
