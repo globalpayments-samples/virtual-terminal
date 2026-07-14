@@ -5,8 +5,8 @@ declare(strict_types=1);
 /**
  * Configuration Endpoint
  *
- * MOTO is server-side keyed entry (the agent types the card into a plain form), so
- * there is no public key or hosted fields to expose to the browser.
+ * Returns environment metadata for the virtual terminal page. The access token the hosted
+ * fields need is minted separately by get-access-token.php.
  *
  * PHP version 8.0 or higher
  *

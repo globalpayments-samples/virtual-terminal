@@ -6,6 +6,10 @@
   <title>MOTO Virtual Terminal · Global Payments</title>
   <!-- Self-contained design system: tokens, DM Sans/DM Mono fonts, every utility class. -->
   <link rel="stylesheet" href="gp-checkout.css">
+  <!-- Global Payments hosted-fields library. The card number, expiry and CVV are rendered
+       inside iframes served by Global Payments; the PAN is tokenised in the browser and
+       never touches this page or the server. -->
+  <script src="https://js.globalpay.com/4.1.11/globalpayments.js"></script>
   <style>
     /* Page-specific gaps the utility classes don't cover; all values are design tokens. */
     .moto-section {
@@ -19,18 +23,7 @@
       letter-spacing: var(--tracking-normal);
       color: var(--text-muted); opacity: 0.85;
     }
-    /* Label + trailing chip (detected card brand) on one baseline. */
-    .moto-label-row {
-      display: flex; align-items: center; justify-content: space-between;
-      gap: var(--gp-space-sm); margin-bottom: 7px; min-height: 22px;
-    }
-    .moto-label-row .gp-label { margin-bottom: 0; }
-    /* Three-up row for expiry month / expiry year / CVV. */
-    .moto-field-trio { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--gp-space-md); }
-    @media (max-width: 480px) { .moto-field-trio { grid-template-columns: 1fr; } }
-    /* Inside a grid row the gap is the spacer; the field's own margin would double it. */
-    .moto-field-trio .gp-field { margin-bottom: 0; }
-    @media (max-width: 480px) { .gp-field-row .gp-field { margin-bottom: 0; } }
+    .gp-field-row .gp-field { margin-bottom: 0; }
     /* Per-field inline validation message. */
     .moto-err {
       display: block; margin-top: var(--gp-space-xs);
@@ -38,12 +31,15 @@
       color: var(--error-ink);
     }
     .moto-err[hidden] { display: none; }
-    .gp-input[aria-invalid="true"],
-    .gp-select[aria-invalid="true"] { border-color: var(--gp-error); }
-    .gp-input[aria-invalid="true"]:focus,
-    .gp-select[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px var(--error-surface); }
+    .gp-input[aria-invalid="true"] { border-color: var(--gp-error); }
+    .gp-input[aria-invalid="true"]:focus { box-shadow: 0 0 0 3px var(--error-surface); }
     .moto-hint { font: var(--type-body-sm); font-size: var(--text-xs); color: var(--text-muted); margin: var(--gp-space-xs) 0 0; }
-    #card_number, #exp_year, #cvv { font-family: var(--font-mono); }
+    /* Host container for the Global Payments hosted fields. The library injects its own
+       iframes here; keep the surrounding chrome consistent with the design system. */
+    .moto-hosted {
+      margin-top: var(--gp-space-xs);
+      min-height: 220px;
+    }
     .moto-check {
       display: flex; align-items: flex-start; gap: 10px;
       margin-top: var(--gp-space-md);
@@ -77,7 +73,8 @@
     <h1 class="gp-page-title">MOTO Virtual Terminal</h1>
     <p class="gp-page-subtitle">
       Keyed-entry card payments for Mail Order / Telephone Order. The agent takes the card
-      details over the phone or by mail and charges them here.
+      details over the phone or by mail and keys them into secure hosted fields — the card
+      number never touches this page or the server.
     </p>
 
     <!-- MOTO / SCA explainer -->
@@ -118,7 +115,7 @@
           </li>
         </ol>
 
-        <!-- Sandbox test card (form is pre-filled with these) -->
+        <!-- Sandbox test card (keyed into the hosted fields) -->
         <div class="gp-testcard">
           <div class="gp-testcard-top">
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="4" width="12" height="9" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M2 7h12" stroke="currentColor" stroke-width="1.3"/></svg>
@@ -136,59 +133,13 @@
         <div id="panel-form">
           <div class="gp-card-head">
             <h3>Charge a card</h3>
-            <p>Keyed entry. The agent types in the card details.</p>
+            <p>Set the amount, then key the card into the secure fields and submit.</p>
           </div>
 
-          <!-- novalidate: the page runs its own validation so the messages match the API's rules. -->
+          <!-- Amount + billing are ordinary fields; the card itself is captured by the hosted
+               fields below, so the agent fills these first and then keys the card. -->
           <form id="payment-form" novalidate>
-            <div class="gp-field">
-              <label class="gp-label" for="cardholder_name">Cardholder name</label>
-              <input class="gp-input" id="cardholder_name" name="cardholder_name" type="text"
-                     autocomplete="off" aria-describedby="cardholder_name-err" value="James Mason" required>
-              <span class="moto-err" id="cardholder_name-err" hidden></span>
-            </div>
-
-            <!-- autocomplete="off" is deliberate: the agent keys in someone else's card, so the
-                 browser must never offer to autofill the agent's own saved card. -->
-            <div class="gp-field">
-              <div class="moto-label-row">
-                <label class="gp-label" for="card_number">Card number</label>
-                <span class="gp-badge gp-badge-neutral" id="card-brand" aria-live="polite" hidden></span>
-              </div>
-              <input class="gp-input" id="card_number" name="card_number" type="text"
-                     inputmode="numeric" autocomplete="off" spellcheck="false"
-                     aria-describedby="card_number-err" value="4263970000005262" required>
-              <span class="moto-err" id="card_number-err" hidden></span>
-            </div>
-
-            <div class="moto-field-trio">
-              <div class="gp-field">
-                <label class="gp-label" for="exp_month">Expiry month</label>
-                <select class="gp-select" id="exp_month" name="exp_month" aria-describedby="exp_year-err" required>
-                  <option>01</option><option>02</option><option>03</option><option>04</option>
-                  <option>05</option><option>06</option><option>07</option><option>08</option>
-                  <option selected>09</option><option>10</option><option>11</option><option>12</option>
-                </select>
-              </div>
-              <div class="gp-field">
-                <label class="gp-label" for="exp_year">Expiry year</label>
-                <input class="gp-input" id="exp_year" name="exp_year" type="text"
-                       inputmode="numeric" autocomplete="off" maxlength="4" placeholder="YYYY"
-                       aria-describedby="exp_year-err" required>
-                <!-- Expiry is validated as a pair (month + year must be in the future); the one
-                     message sits under the year, and both halves get aria-invalid. -->
-                <span class="moto-err" id="exp_year-err" hidden></span>
-              </div>
-              <div class="gp-field">
-                <label class="gp-label" for="cvv">CVV</label>
-                <input class="gp-input" id="cvv" name="cvv" type="text"
-                       inputmode="numeric" autocomplete="off" maxlength="3"
-                       aria-describedby="cvv-err" value="852" required>
-                <span class="moto-err" id="cvv-err" hidden></span>
-              </div>
-            </div>
-
-            <div class="gp-field-row" style="margin-top: var(--gp-space-md)">
+            <div class="gp-field-row">
               <div class="gp-field">
                 <label class="gp-label" for="amount">Amount</label>
                 <div class="gp-input-amount">
@@ -272,15 +223,17 @@
               <span>Store card for future merchant-initiated payments (COF)</span>
             </label>
 
+            <!-- Hosted fields: card number / expiry / CVV / name + the submit button are all
+                 rendered here by globalpayments.js. Submitting tokenises the card and fires
+                 token-success, which posts the single-use token to /process-payment. -->
+            <p class="moto-section">Card details <em>· secure hosted fields</em></p>
+            <div class="moto-hosted" id="credit-card-form" aria-label="Card details"></div>
+
             <!-- Inline error (keeps the form visible so the agent can correct and retry) -->
             <div class="gp-alert gp-alert-error" id="error" role="alert" style="margin-top: var(--gp-space-lg)" hidden>
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.4"/><path d="M8 5v4M8 11h.01" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
               <span id="error-msg"></span>
             </div>
-
-            <button class="gp-btn gp-btn-primary gp-btn-full" id="submit-btn" type="submit" style="margin-top: var(--gp-space-lg)">
-              Charge card
-            </button>
           </form>
         </div>
 
@@ -322,7 +275,7 @@
   <!-- Footer ------------------------------------------------------------- -->
   <footer class="gp-footer">
     <div class="gp-container gp-footer-inner">
-      <p class="gp-footer-copy">© 2025 Global Payments Inc. · MOTO GP-API sample</p>
+      <p class="gp-footer-copy">© 2025 Global Payments Inc. · MOTO virtual terminal sample</p>
       <nav class="gp-footer-nav">
         <a href="https://developer.globalpayments.com/">Documentation</a>
         <a href="https://developer.globalpayments.com/api/references-overview">API Reference</a>
@@ -333,93 +286,11 @@
   <script>
     const $ = (id) => document.getElementById(id);
     const SYMBOL = { EUR: "€", USD: "$", GBP: "£" };
-    const digitsOf = (s) => String(s).replace(/\D/g, "");
 
-    /* ---- Card brands ------------------------------------------------------
-       Enough IIN detection to drive the three things the UI needs: digit
-       grouping, the accepted PAN lengths, and the CVV length. */
-    const BRANDS = [
-      { name: "American Express", iin: /^3[47]/,                lengths: [15],     cvv: [4], gaps: [4, 10] },
-      { name: "Visa",             iin: /^4/,                    lengths: [16, 19], cvv: [3], gaps: [4, 8, 12, 16] },
-      { name: "Mastercard",       iin: /^(5[1-5]|2[2-7])/,      lengths: [16],     cvv: [3], gaps: [4, 8, 12] },
-      { name: "Discover",         iin: /^(6011|64[4-9]|65)/,    lengths: [16, 19], cvv: [3], gaps: [4, 8, 12, 16] },
-    ];
-    const UNKNOWN_BRAND = { name: "", lengths: [12, 13, 14, 15, 16, 17, 18, 19], cvv: [3, 4], gaps: [4, 8, 12, 16] };
-    const brandOf = (pan) => (pan ? BRANDS.find((b) => b.iin.test(pan)) : null) || UNKNOWN_BRAND;
-    const maxLenOf = (brand) => Math.max(...brand.lengths);
-
-    // 4-4-4-4 (or 4-6-5 for Amex) as you type.
-    function groupPan(pan, gaps) {
-      let out = "", from = 0;
-      for (const gap of gaps) {
-        if (pan.length > gap) { out += pan.slice(from, gap) + " "; from = gap; }
-      }
-      return out + pan.slice(from);
-    }
-
-    function luhnOk(pan) {
-      let sum = 0, double = false;
-      for (let i = pan.length - 1; i >= 0; i--) {
-        let d = +pan[i];
-        if (double) { d *= 2; if (d > 9) d -= 9; }
-        sum += d;
-        double = !double;
-      }
-      return pan.length > 0 && sum % 10 === 0;
-    }
-
-    // "28" → "2028"; "2028" → "2028". The API contract wants 4 digits.
-    function normalizeYear(raw) {
-      const y = digitsOf(raw);
-      return y.length === 2 ? String(new Date().getFullYear()).slice(0, 2) + y : y;
-    }
-
-    /* ---- Validation -------------------------------------------------------
-       One rule per field id; "" means valid. Runs on blur and on submit, and
-       re-runs on input only for a field that is already showing an error. */
+    /* ---- Validation (non-card fields only) --------------------------------
+       The card number, expiry and CVV live in the hosted-fields iframes and are
+       validated by globalpayments.js; here we only guard the amount. */
     const RULES = {
-      cardholder_name: (v) =>
-        v.trim().length >= 2 ? "" : "Enter the name printed on the card.",
-
-      card_number: (v) => {
-        const pan = digitsOf(v);
-        if (!pan) return "Enter the card number.";
-        const brand = brandOf(pan);
-        if (!brand.lengths.includes(pan.length)) {
-          return brand.name
-            ? `A ${brand.name} number is ${brand.lengths.join(" or ")} digits.`
-            : "That card number is not a valid length.";
-        }
-        if (!luhnOk(pan)) return "That card number is not valid. Check the digits with the caller.";
-        return "";
-      },
-
-      // Month and year are validated together; the message hangs off the year field.
-      exp_year: (v) => {
-        const raw = digitsOf(v);
-        if (!raw) return "Enter the expiry year.";
-        if (raw.length !== 2 && raw.length !== 4) return "Enter the year as 2 or 4 digits, e.g. 28 or 2028.";
-        const year = +normalizeYear(raw);
-        const month = +$("exp_month").value;
-        const now = new Date();
-        if (year < now.getFullYear()) return "That expiry date has already passed.";
-        if (year > now.getFullYear() + 20) return "Cards do not expire that far ahead. Check the year.";
-        if (year === now.getFullYear() && month < now.getMonth() + 1) return "That expiry date has already passed.";
-        return "";
-      },
-
-      cvv: (v) => {
-        const cvv = digitsOf(v);
-        const brand = brandOf(digitsOf($("card_number").value));
-        if (!cvv) return "Enter the security code.";
-        if (!brand.cvv.includes(cvv.length)) {
-          return brand.name === "American Express"
-            ? "American Express security codes are 4 digits."
-            : `The security code is ${brand.cvv.join(" or ")} digits.`;
-        }
-        return "";
-      },
-
       amount: (v) => {
         const a = v.trim().replace(",", ".");
         if (!a) return "Enter an amount.";
@@ -433,8 +304,6 @@
       const field = $(id);
       const err = $(id + "-err");
       field.setAttribute("aria-invalid", message ? "true" : "false");
-      // The expiry is one control split in two: flag both halves.
-      if (id === "exp_year") $("exp_month").setAttribute("aria-invalid", message ? "true" : "false");
       err.textContent = message;
       err.hidden = !message;
     }
@@ -457,47 +326,6 @@
         if (field.getAttribute("aria-invalid") === "true") validateField(id);
       });
     });
-    // Changing the month can fix (or break) a same-year expiry that is already flagged.
-    $("exp_month").addEventListener("change", () => {
-      if ($("exp_year").getAttribute("aria-invalid") === "true") validateField("exp_year");
-    });
-
-    /* ---- Live formatting --------------------------------------------------- */
-    const cardInput = $("card_number");
-    const cvvInput = $("cvv");
-    const brandChip = $("card-brand");
-
-    function formatCard() {
-      const start = cardInput.selectionStart;
-      const digitsBeforeCaret = digitsOf(cardInput.value.slice(0, start)).length;
-      const brand = brandOf(digitsOf(cardInput.value));
-      const pan = digitsOf(cardInput.value).slice(0, maxLenOf(brand));
-      cardInput.value = groupPan(pan, brand.gaps);
-
-      // Put the caret back after the same number of digits (survives paste and mid-string edits).
-      if (document.activeElement === cardInput) {
-        let i = 0, seen = 0;
-        while (i < cardInput.value.length && seen < digitsBeforeCaret) {
-          if (/\d/.test(cardInput.value[i])) seen++;
-          i++;
-        }
-        cardInput.setSelectionRange(i, i);
-      }
-
-      brandChip.textContent = brand.name;
-      brandChip.hidden = !brand.name;
-      cvvInput.maxLength = Math.max(...brand.cvv);
-    }
-    // Pasting "4263-9700 0000 5262" or a PAN with spaces lands here and is normalized.
-    cardInput.addEventListener("input", formatCard);
-
-    // Digits only, whatever the agent types or pastes.
-    [cvvInput, $("exp_year")].forEach((el) => {
-      el.addEventListener("input", () => {
-        const clean = digitsOf(el.value).slice(0, el.maxLength);
-        if (el.value !== clean) el.value = clean;
-      });
-    });
 
     // Money: accept a comma as the decimal separator, settle to 2 dp on blur.
     const amountInput = $("amount");
@@ -515,7 +343,6 @@
     country.addEventListener("change", syncCountryCode);
 
     /* ---- Panels ------------------------------------------------------------ */
-    const form = $("payment-form");
     const panelForm = $("panel-form");
     const panelResult = $("panel-result");
     const spinnerState = $("spinner-state");
@@ -524,11 +351,9 @@
     function showForm() {
       panelResult.hidden = true;
       panelForm.hidden = false;
-      $("submit-btn").disabled = false;
     }
     function showSpinner() {
       $("error").hidden = true;
-      $("submit-btn").disabled = true;
       panelForm.hidden = true;
       successState.hidden = true;
       spinnerState.hidden = false;
@@ -537,6 +362,10 @@
     function showAlert(message) {
       $("error-msg").textContent = message;
       $("error").hidden = false;
+    }
+
+    function esc(v) {
+      return String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     }
 
     function renderReceipt(d) {
@@ -575,29 +404,19 @@
       $("result-heading").focus();
     }
 
-    function esc(v) {
-      return String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-    }
-
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-
-      // Nothing leaves the browser until every field passes.
-      const invalid = Object.keys(RULES).filter((id) => !validateField(id));
-      if (invalid.length) {
-        showAlert("Check the highlighted fields and try again.");
-        $(invalid[0]).focus();
+    /* ---- Charge with the tokenised card ------------------------------------
+       Runs after globalpayments.js has tokenised the hosted fields. We attach the
+       single-use token to the amount/billing/COF values and post to the backend,
+       which charges it with entry_mode = MOTO. */
+    async function chargeWithToken(paymentReference) {
+      if (!validateField("amount")) {
+        showAlert("Check the amount and submit the card again.");
+        $("amount").focus();
         return;
       }
 
-      // Normalized to the shape /process-payment expects: bare PAN digits, 2-digit month,
-      // 4-digit year, decimal-string amount, ISO numeric country.
       const payload = {
-        card_number: digitsOf($("card_number").value),
-        exp_month: $("exp_month").value,
-        exp_year: normalizeYear($("exp_year").value),
-        cvv: digitsOf($("cvv").value),
-        cardholder_name: $("cardholder_name").value.trim(),
+        payment_reference: paymentReference,
         amount: parseFloat($("amount").value.replace(",", ".")).toFixed(2),
         currency: currency.value,
         billing_address: {
@@ -623,28 +442,77 @@
       } catch (err) {
         showForm();
         showAlert(err.message || "Could not reach the payment service. Try again.");
-        $("submit-btn").focus();
       }
-    });
+    }
 
-    // Full reset: values back to the sandbox defaults, every error and aria state cleared.
+    /* ---- Hosted fields ----------------------------------------------------- */
+    let cardForm;
+
+    function initCardForm() {
+      // creditCard.form renders the card number, expiry, CVV, cardholder name and the
+      // submit button as hosted-field iframes inside #credit-card-form.
+      cardForm = GlobalPayments.creditCard.form("#credit-card-form", {
+        style: "gp-default",
+        enableSavedPaymentMethods: false,
+      });
+
+      // Pressing the hosted submit button tokenises the card, then we charge it.
+      cardForm.on("token-success", (resp) => {
+        chargeWithToken(resp.paymentReference);
+      });
+
+      // Card-side validation failures (bad number, expired card, etc.) come back here.
+      cardForm.on("token-error", (resp) => {
+        showAlert(resp?.reasons?.[0]?.message || "Card details are invalid. Check them with the caller.");
+      });
+    }
+
+    function resetCardForm() {
+      try {
+        document.querySelectorAll("#credit-card-form > *").forEach((el) => el.remove());
+        if (cardForm) cardForm.dispose();
+      } catch (e) { /* re-init below regardless */ }
+      initCardForm();
+    }
+
+    /* ---- Boot -------------------------------------------------------------- */
+    async function boot() {
+      try {
+        // Mint a short-lived access token scoped to single-use tokenisation, then hand it
+        // to globalpayments.js so the hosted fields can tokenise the card in the browser.
+        const res = await fetch("/get-access-token", { method: "POST" });
+        const data = await res.json();
+        if (!data.success || !data.token) throw new Error(data.error || "Could not initialise the card fields.");
+
+        GlobalPayments.configure({
+          accessToken: data.token,
+          apiVersion: "2021-03-22",
+          env: "sandbox",
+        });
+
+        initCardForm();
+      } catch (err) {
+        showAlert(err.message || "Could not initialise the card fields. Refresh to try again.");
+      }
+    }
+
+    // Full reset: values back to the sandbox defaults, hosted fields re-rendered.
     $("again-btn").addEventListener("click", () => {
-      form.reset();
+      $("payment-form").reset();
       clearValidation();
-      initForm();
+      initDefaults();
+      resetCardForm();
       showForm();
-      $("cardholder_name").focus();
+      $("amount").focus();
     });
 
-    function initForm() {
-      // Default expiry: next year, and as the reset value so "Run another payment" restores it.
-      $("exp_year").defaultValue = String(new Date().getFullYear() + 1);
-      $("exp_year").value = $("exp_year").defaultValue;
-      formatCard();
+    function initDefaults() {
       syncSymbol();
       syncCountryCode();
     }
-    initForm();
+
+    initDefaults();
+    boot();
   </script>
 </body>
 </html>

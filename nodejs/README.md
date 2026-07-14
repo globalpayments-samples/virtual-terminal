@@ -2,8 +2,10 @@
 
 This example demonstrates **MOTO (Mail Order / Telephone Order)** card payments using
 Express.js and the Global Payments **GP-API (Unified Payments)** SDK. An agent keys a
-customer's card into a virtual terminal; the backend charges it with `entry_mode = MOTO`,
-which exempts the transaction from SCA / 3D Secure 2 under PSD2.
+customer's card into Global Payments **hosted fields** (secure iframes served by
+`globalpayments.js`), which tokenize the card in the browser. The Express backend then charges
+the resulting single-use token with `entry_mode = MOTO`, which exempts the transaction from
+SCA / 3D Secure 2 under PSD2. The PAN never reaches the server.
 
 ## Requirements
 
@@ -13,7 +15,7 @@ which exempts the transaction from SCA / 3D Secure 2 under PSD2.
 
 ## Project Structure
 
-- `server.js` - Express server, GP-API config, and the MOTO payment endpoint
+- `server.js` - Express server, GP-API config, the hosted-fields access token endpoint (`POST /get-access-token`), and the MOTO payment endpoint
 - `index.html` - Agent-facing MOTO virtual terminal form
 - `gp-checkout.css` - Global Payments design-system styles
 - `package.json` - Project dependencies and scripts
@@ -39,8 +41,9 @@ which exempts the transaction from SCA / 3D Secure 2 under PSD2.
 
 Both go through the single `/process-payment` endpoint:
 
-1. **Standard MOTO CIT** — a one-off charge. `entry_mode = MOTO` is always set; no card
-   storage.
+1. **Standard MOTO CIT** — a one-off charge. The charge is built from the token
+   (`card.token = payment_reference`) with `entryMethod = ManualEntryMethod.MOTO` always set;
+   no card storage.
 2. **CIT with Credential on File (COF)** — the same charge plus a `StoredCredential` block
    (initiator = CardHolder, type = Unscheduled, sequence = First). Tick "Store card" to send
    it. The response's `brandReference` is what you would persist to run future
@@ -49,9 +52,10 @@ Both go through the single `/process-payment` endpoint:
 ## SDK Configuration
 
 `GpApiConfig` is configured from environment variables: `appId`, `appKey`, `country`,
-`channel = CardNotPresent`, and the sandbox (`Environment.Test`) environment. Because MOTO is
-server-side keyed entry there are no hosted fields and no public key — `GET /config` returns
-only the environment and merchant name.
+`channel = CardNotPresent`, and the sandbox (`Environment.Test`) environment. The hosted fields
+need a short-lived access token, which `POST /get-access-token` mints (scoped to a single
+tokenization, `PMT_POST_Create_Single`). `GET /config` returns only the environment and
+merchant name.
 
 ## API Endpoints
 
@@ -61,16 +65,25 @@ only the environment and merchant name.
 { "success": true, "data": { "environment": "sandbox", "merchantName": "GP MOTO Demo" } }
 ```
 
+### POST /get-access-token
+
+No request body. Mints the short-lived GP-API access token used by the hosted fields.
+
+Response:
+
+```json
+{ "success": true, "token": "<access token>", "expiresIn": 600 }
+```
+
 ### POST /process-payment
 
 Request (JSON):
 
 ```json
 {
-  "card_number": "4263970000005262",
-  "exp_month": "09", "exp_year": "2028", "cvv": "852",
-  "cardholder_name": "James Mason",
-  "amount": "49.99", "currency": "EUR",
+  "payment_reference": "<single-use token from the hosted fields>",
+  "amount": "49.99",
+  "currency": "EUR",
   "billing_address": {
     "line1": "Apartment 852", "city": "Chicago", "state": "IL",
     "postal_code": "50001", "country": "840"
@@ -79,7 +92,7 @@ Request (JSON):
 }
 ```
 
-`card_number`, `exp_month`, `exp_year`, `cvv` and `amount` are required; a missing field
+`payment_reference` and `amount` are required; a missing field
 returns `400 { "success": false, "error": "..." }`.
 
 Response (200):
@@ -107,8 +120,11 @@ logged or returned in an error.
 ## Test Card
 
 Sandbox test card: **4263970000005262**, any future expiry, CVV **852** → expect `CAPTURED`.
+Keyed into the hosted fields.
 
 ## Security Considerations
 
-This is sample code. For production also consider input validation, rate limiting, security
-headers, structured logging (never the PAN), fraud checks, HTTPS, and CORS configuration.
+The card is tokenized client-side in the hosted fields, so the PAN never reaches the server
+(reduced PCI scope). This is sample code. For production also consider input validation, rate
+limiting, security headers, structured logging (never the PAN), fraud checks, HTTPS, and CORS
+configuration.

@@ -15,6 +15,11 @@ if ($path === '/config') {
     return true;
 }
 
+if ($path === '/get-access-token') {
+    require __DIR__ . '/get-access-token.php';
+    return true;
+}
+
 if ($path === '/process-payment') {
     require __DIR__ . '/process-payment.php';
     return true;

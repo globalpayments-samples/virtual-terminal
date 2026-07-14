@@ -5,10 +5,12 @@ declare(strict_types=1);
 /**
  * MOTO Payment Processing — GP-API (Unified Payments)
  *
- * Agent-facing "virtual terminal" endpoint: keys a card into a small backend which
- * charges it with entryMethod = MOTO. Flagging a transaction as MOTO exempts it from
- * SCA/3DS2 under PSD2. Optionally stores the credential (COF) so the returned brand
- * reference can be persisted for future merchant-initiated transactions (MITs).
+ * Agent-facing "virtual terminal" endpoint. The card is keyed into hosted fields in the
+ * browser and tokenised there, so this endpoint receives a single-use token
+ * (payment_reference), never the PAN. It charges that token with entryMethod = MOTO.
+ * Flagging a transaction as MOTO exempts it from SCA/3DS2 under PSD2. Optionally stores the
+ * credential (COF) so the returned brand reference can be persisted for future
+ * merchant-initiated transactions (MITs).
  *
  * PHP version 8.0 or higher
  *
@@ -69,26 +71,24 @@ configureSdk();
 try {
     $body = json_decode((string) file_get_contents('php://input'), true) ?? [];
 
-    // Validate required fields (never echo the PAN back).
-    $required = ['card_number', 'exp_month', 'exp_year', 'cvv', 'amount'];
+    // Validate required fields.
+    $required = ['payment_reference', 'amount'];
     foreach ($required as $field) {
         if (empty($body[$field])) {
             http_response_code(400);
             echo json_encode([
                 'success' => false,
-                'error' => 'Missing required field(s): card_number, exp_month, exp_year, cvv, amount',
+                'error' => 'Missing required field(s): payment_reference, amount',
             ]);
             exit;
         }
     }
 
+    // The hosted fields already captured and tokenised the card; charge the token with
+    // entryMethod = MOTO — the whole point of this sample (flags it as MOTO / SCA-exempt).
     $card = new CreditCardData();
-    $card->number = $body['card_number'];
-    $card->expMonth = $body['exp_month'];
-    $card->expYear = $body['exp_year'];
-    $card->cvn = $body['cvv'];
-    $card->cardHolderName = $body['cardholder_name'] ?? null;
-    $card->entryMethod = ManualEntryMethod::MOTO; // the whole point — flags this as MOTO / SCA-exempt
+    $card->token = $body['payment_reference'];
+    $card->entryMethod = ManualEntryMethod::MOTO;
 
     $currency = $body['currency'] ?? 'EUR';
 
