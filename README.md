@@ -1,34 +1,60 @@
-# MOTO Payments — GP-API Sample
+# MOTO Virtual Terminal — GP-API Sample
 
-A Global Payments sample project demonstrating **MOTO (Mail Order / Telephone Order)** payments
-via **GP-API (Unified Payments)** using the official server-side SDKs. An agent-facing "virtual
-terminal" page posts card details keyed in by an agent to a small backend, which charges the card
-with `entry_mode = MOTO` — exempting it from Strong Customer Authentication (SCA) / 3D Secure 2
-under PSD2 — and can optionally store the credential (Credential on File) for later
-merchant-initiated transactions.
+A Global Payments sample project demonstrating an agent-facing **MOTO (Mail Order / Telephone
+Order)** virtual terminal on **GP-API (Unified Payments)**. The agent keys the customer's card
+into Global Payments **hosted fields** (secure iframes served by `globalpayments.js`), which
+tokenize the card in the browser. The backend then charges the resulting single-use token with
+`entry_mode = MOTO` — exempting it from Strong Customer Authentication (SCA) / 3D Secure 2 under
+PSD2 — and can optionally store the credential (Credential on File) for later merchant-initiated
+transactions.
 
-See the official docs: [GP-API MOTO](https://developer.globalpayments.com/docs/moto).
+Because the card is tokenized client-side, the raw card number (PAN) never reaches this
+application — the whole point of using hosted fields.
+
+See the official docs: [GP-API MOTO](https://developer.globalpayments.com/docs/moto) ·
+[Hosted Fields](https://developer.globalpayments.com/docs/integration-options/hosted-fields).
 
 ## Available Implementations
 
-- [.NET Core](./dotnet/) - ASP.NET Core web application
-- [Java](./java/) - Jakarta EE servlet-based web application
-- [Node.js](./nodejs/) - Express.js web application
-- [PHP](./php/) - PHP web application
+| Language | Framework | SDK Package | Host port |
+|----------|-----------|-------------|-----------|
+| [**.NET**](./dotnet/) | ASP.NET Core | `GlobalPayments.Api` | 8001 |
+| [**Node.js**](./nodejs/) | Express.js | `globalpayments-api` | 8002 |
+| [**PHP**](./php/) | Built-in server | `globalpayments/php-sdk` | 8003 |
+| [**Java**](./java/) | Jakarta EE servlet | `globalpayments-sdk` | 8004 |
 
 Each implementation is functionally identical: same endpoints, same request/response contract,
-same virtual terminal UI — just written idiomatically per language.
+the same virtual terminal UI — just written idiomatically per language.
+
+## How it works
+
+```
+Agent keys card into hosted fields (iframes)
+        │  globalpayments.js tokenizes in the browser
+        ▼
+  single-use token (payment_reference)  ──POST /process-payment──▶  backend
+        ▲                                                              │
+        │  access token (POST /get-access-token)                      │ charge token,
+        └──────────────── minted server-side ◀────────────────────────┘ entry_mode = MOTO
+```
+
+1. On load, the page calls `POST /get-access-token`. The server mints a short-lived GP-API
+   access token scoped to a single tokenization (`PMT_POST_Create_Single`) and returns it.
+2. `globalpayments.js` uses that token to render the hosted card fields and, on submit,
+   tokenizes the card into a single-use `payment_reference`.
+3. The page posts that token (plus amount, billing address, and the COF flag) to
+   `POST /process-payment`, which charges it as a MOTO transaction.
 
 ## The two flows
 
 Both flows go through the single `POST /process-payment` endpoint.
 
-1. **Standard MOTO CIT** — a one-off, customer-initiated charge. No card storage. The card is
-   built with `entryMethod = MOTO`, which is what tells GP-API the card details were keyed in by
-   an agent rather than typed by the cardholder, exempting the transaction from SCA/3DS2.
+1. **Standard MOTO CIT** — a one-off, customer-initiated charge. No card storage. The charge is
+   built with `entryMethod = MOTO`, which tells GP-API the card details were keyed in by an agent
+   rather than typed by the cardholder, exempting the transaction from SCA/3DS2.
 2. **CIT with Credential on File (COF)** — the same charge, plus a `StoredCredential` block
    (`initiator = CardHolder`, `type = Unscheduled`, `sequence = First`) attached to the request.
-   The response's `brand_reference` must be surfaced to the caller — it's the token you'd persist
+   The response's `brandReference` must be surfaced to the caller — it's the token you'd persist
    and reuse on a later merchant-initiated transaction (MIT), quoting `sequence = Subsequent`.
    Toggle this flow with the "Store card for future merchant-initiated payments" checkbox on the
    virtual terminal.
@@ -36,8 +62,8 @@ Both flows go through the single `POST /process-payment` endpoint.
 ## Endpoint contract
 
 All four servers listen on `PORT` (default `8000`), bind `0.0.0.0`, and serve this same contract.
-The full, language-agnostic contract (SDK configuration, MOTO/COF specifics, frontend states)
-lives in [`docs/API-CONTRACT.md`](./docs/API-CONTRACT.md).
+The full, language-agnostic contract (SDK configuration, hosted-fields flow, MOTO/COF specifics,
+frontend states) lives in [`docs/API-CONTRACT.md`](./docs/API-CONTRACT.md).
 
 ### `GET /config`
 
@@ -45,8 +71,17 @@ lives in [`docs/API-CONTRACT.md`](./docs/API-CONTRACT.md).
 { "success": true, "data": { "environment": "sandbox", "merchantName": "GP MOTO Demo" } }
 ```
 
-No public key is returned — MOTO is server-side keyed entry, there are no hosted fields to
-initialize client-side.
+Environment metadata for the page. The access token the hosted fields need is minted separately
+by `POST /get-access-token`.
+
+### `POST /get-access-token`
+
+No request body. Mints a short-lived GP-API access token (scoped to `PMT_POST_Create_Single`) for
+`globalpayments.js` to initialize the hosted fields.
+
+```json
+{ "success": true, "token": "<access token>", "expiresIn": 600 }
+```
 
 ### `POST /process-payment`
 
@@ -54,11 +89,7 @@ Request:
 
 ```json
 {
-  "card_number": "4263970000005262",
-  "exp_month": "09",
-  "exp_year": "2027",
-  "cvv": "852",
-  "cardholder_name": "James Mason",
+  "payment_reference": "<single-use token from the hosted fields>",
   "amount": "49.99",
   "currency": "EUR",
   "billing_address": {
@@ -68,6 +99,9 @@ Request:
   "store_card": false
 }
 ```
+
+`payment_reference` and `amount` are required; a missing field returns
+`400 { "success": false, "error": "..." }`.
 
 Response (200):
 
@@ -90,7 +124,7 @@ Response (200):
 
 `brandReference` is present whenever the SDK response returns one (relevant for the COF flow).
 Set `store_card: true` to attach the Stored Credential block. Errors (validation failures,
-declines, SDK exceptions) return `{ "success": false, "error": "<message>" }` — never the raw PAN.
+declines, SDK exceptions) return `{ "success": false, "error": "<message>" }`.
 
 ## Quick start
 
@@ -124,20 +158,23 @@ root [`index.html`](./index.html) in a browser for links to all four.
 
 ## Sandbox test card
 
+Keyed into the hosted fields:
+
 - Card number: `4263970000005262`
 - Expiry: any future date
 - CVV: `852`
 
-Expect a `CAPTURED` response in sandbox.
+Expect a `CAPTURED` response in sandbox. More cards:
+[GP-API test cards](https://developer.globalpayments.com/resources/test-cards).
 
 ## PCI note
 
-This sample accepts and handles raw card numbers server-side — that's expected for MOTO, where
-the card is agent-keyed rather than tokenized client-side, so there are no hosted fields to
-offload PAN handling to. In production, any service that touches raw PANs is in PCI DSS scope:
-plan for a PCI-compliant environment (network segmentation, encryption at rest/in transit,
-restricted logging — this sample never logs full card numbers) rather than copying this pattern
-directly into an unscoped environment.
+By capturing the card in Global Payments hosted fields, the PAN is tokenized in the browser and
+**never touches this application** — the server only ever sees a single-use token. This keeps the
+merchant server out of the card-data environment and reduces PCI DSS scope (the hosted-fields
+integration model, broadly SAQ A). In production, still serve the page over HTTPS, keep the
+`globalpayments.js` script loaded directly from Global Payments (never self-hosted or proxied),
+and never log tokens or transaction identifiers alongside customer data.
 
 ## License
 

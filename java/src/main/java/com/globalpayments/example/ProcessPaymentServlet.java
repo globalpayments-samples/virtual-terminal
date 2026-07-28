@@ -15,6 +15,7 @@ import com.global.api.entities.exceptions.ApiException;
 import com.global.api.entities.exceptions.ConfigurationException;
 import com.global.api.paymentMethods.CreditCardData;
 import com.global.api.serviceConfigs.GpApiConfig;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -25,27 +26,42 @@ import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
 
 /**
  * MOTO (Mail Order / Telephone Order) Payment Processing Servlet
  *
- * Demonstrates GP-API (Unified Payments) MOTO transactions: an agent keys a card in directly
- * (no hosted fields/tokenization), the card is flagged with entry_mode = MOTO which exempts the
- * charge from SCA/3DS2 under PSD2. Optionally stores the card as a Credential on File (COF) for
- * later merchant-initiated transactions.
+ * Demonstrates GP-API (Unified Payments) MOTO transactions: an agent keys a card into Global
+ * Payments hosted fields (secure iframes) which tokenize it in the browser, and the charge is
+ * flagged with entry_mode = MOTO which exempts it from SCA/3DS2 under PSD2. The PAN never reaches
+ * this server. Optionally stores the card as a Credential on File (COF) for later
+ * merchant-initiated transactions.
  *
  * Endpoints:
- * - GET /config: Returns basic environment info for the virtual terminal page
- * - POST /process-payment: Runs a MOTO charge, optionally storing the card (COF)
+ * - GET  /config: Returns basic environment info for the virtual terminal page
+ * - POST /get-access-token: Mints a short-lived GP-API token for the browser's hosted fields
+ * - POST /process-payment: Charges the tokenized card as MOTO, optionally storing it (COF)
  */
-@WebServlet(urlPatterns = {"/process-payment", "/config"})
+@WebServlet(urlPatterns = {"/process-payment", "/config", "/get-access-token"})
 public class ProcessPaymentServlet extends HttpServlet {
 
     private static final long serialVersionUID = 1L;
+    // GP-API access-token endpoint (used to mint the short-lived token the hosted fields need).
+    private static final String ACCESS_TOKEN_URL = "https://apis.sandbox.globalpay.com/ucp/accesstoken";
+    private static final HttpClient HTTP = HttpClient.newHttpClient();
+    private static final SecureRandom RANDOM = new SecureRandom();
     // ignoreIfMissing: containers pass credentials as real env vars (--env-file), not a physical
     // .env file, and Dotenv.get() falls back to System.getenv() when no file is present.
     private final Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
@@ -88,6 +104,12 @@ public class ProcessPaymentServlet extends HttpServlet {
             throws IOException {
         response.setContentType("application/json");
 
+        // The hosted fields ask for a short-lived access token before they can tokenize a card.
+        if ("/get-access-token".equals(request.getServletPath())) {
+            handleAccessToken(response);
+            return;
+        }
+
         JsonObject req;
         try {
             String rawBody = request.getReader().lines().collect(Collectors.joining());
@@ -98,10 +120,7 @@ public class ProcessPaymentServlet extends HttpServlet {
         }
 
         try {
-            String cardNumber = requireString(req, "card_number");
-            String expMonth = requireString(req, "exp_month");
-            String expYear = requireString(req, "exp_year");
-            String cvv = requireString(req, "cvv");
+            String paymentReference = requireString(req, "payment_reference");
             String amountStr = requireString(req, "amount");
 
             BigDecimal amount;
@@ -115,17 +134,13 @@ public class ProcessPaymentServlet extends HttpServlet {
             }
 
             String currency = optString(req, "currency", "EUR");
-            String cardholderName = optString(req, "cardholder_name", null);
             boolean storeCard = req.has("store_card") && req.get("store_card").getAsBoolean();
 
-            // Card is keyed in directly by the agent - entryMethod MOTO is what exempts this
-            // charge from SCA/3DS2 under PSD2. Never omit it.
+            // The hosted fields already captured and tokenized the card; charge the single-use
+            // token. entryMethod MOTO is what exempts this charge from SCA/3DS2 under PSD2 —
+            // never omit it.
             CreditCardData card = new CreditCardData();
-            card.setNumber(cardNumber);
-            card.setExpMonth(Integer.parseInt(expMonth.trim()));
-            card.setExpYear(Integer.parseInt(expYear.trim()));
-            card.setCvn(cvv);
-            card.setCardHolderName(cardholderName);
+            card.setToken(paymentReference);
             card.setEntryMethod(ManualEntryMethod.Moto);
 
             String orderId = UUID.randomUUID().toString();
@@ -182,6 +197,88 @@ public class ProcessPaymentServlet extends HttpServlet {
             // Never log the PAN - log only the SDK-provided message.
             writeError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, e.getMessage());
         }
+    }
+
+    /**
+     * Mints a short-lived GP-API access token for the browser's hosted fields. The token is
+     * scoped to a single tokenization (PMT_POST_Create_Single) so the page can turn the keyed
+     * card into a single-use token without exposing the app credentials. The hash is
+     * sha512(nonce + appKey), exactly as the GP-API access-token contract requires.
+     */
+    private void handleAccessToken(HttpServletResponse response) throws IOException {
+        try {
+            String appId = cleanEnv(dotenv.get("GP_API_APP_ID"));
+            String appKey = cleanEnv(dotenv.get("GP_API_APP_KEY"));
+
+            byte[] nonceBytes = new byte[16];
+            RANDOM.nextBytes(nonceBytes);
+            String nonce = toHex(nonceBytes);
+            String secret = toHex(MessageDigest.getInstance("SHA-512")
+                    .digest((nonce + appKey).getBytes(StandardCharsets.UTF_8)));
+
+            JsonObject tokenRequest = new JsonObject();
+            tokenRequest.addProperty("app_id", appId);
+            tokenRequest.addProperty("nonce", nonce);
+            tokenRequest.addProperty("secret", secret);
+            tokenRequest.addProperty("grant_type", "client_credentials");
+            tokenRequest.addProperty("seconds_to_expire", 600);
+            JsonArray permissions = new JsonArray();
+            permissions.add("PMT_POST_Create_Single");
+            tokenRequest.add("permissions", permissions);
+
+            HttpRequest httpRequest = HttpRequest.newBuilder(URI.create(ACCESS_TOKEN_URL))
+                    .header("Content-Type", "application/json")
+                    .header("X-GP-Version", "2021-03-22")
+                    .POST(HttpRequest.BodyPublishers.ofString(tokenRequest.toString()))
+                    .build();
+
+            HttpResponse<byte[]> httpResponse = HTTP.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
+            JsonObject data = JsonParser.parseString(decodeBody(httpResponse)).getAsJsonObject();
+
+            if (httpResponse.statusCode() < 200 || httpResponse.statusCode() >= 300
+                    || !data.has("token") || data.get("token").isJsonNull()) {
+                String message = data.has("error_description")
+                        ? data.get("error_description").getAsString()
+                        : "Failed to generate access token";
+                writeError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, message);
+                return;
+            }
+
+            JsonObject body = new JsonObject();
+            body.addProperty("success", true);
+            body.addProperty("token", data.get("token").getAsString());
+            body.addProperty("expiresIn",
+                    data.has("seconds_to_expire") ? data.get("seconds_to_expire").getAsInt() : 600);
+            response.getWriter().write(body.toString());
+        } catch (Exception e) {
+            writeError(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR,
+                    "Failed to generate access token");
+        }
+    }
+
+    /**
+     * Reads the response body as UTF-8, transparently gunzipping it when GP-API returns the
+     * payload gzip-compressed (java.net.http does not decompress automatically).
+     */
+    private static String decodeBody(HttpResponse<byte[]> resp) throws IOException {
+        byte[] bytes = resp.body();
+        String encoding = resp.headers().firstValue("content-encoding").orElse("");
+        if (encoding.toLowerCase().contains("gzip")) {
+            try (GZIPInputStream gz = new GZIPInputStream(new ByteArrayInputStream(bytes))) {
+                bytes = gz.readAllBytes();
+            }
+        }
+        return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    /** Lowercase hex encoding, as the GP-API access-token nonce and secret are transmitted. */
+    private static String toHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+            sb.append(Character.forDigit(b & 0xF, 16));
+        }
+        return sb.toString();
     }
 
     /**

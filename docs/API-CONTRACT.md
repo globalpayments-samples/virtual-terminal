@@ -1,23 +1,27 @@
-# MOTO Payments — GP-API · API Contract
+# MOTO Virtual Terminal — GP-API · API Contract
 
 The detailed, language-agnostic contract that all four implementations in this repo
 (`nodejs/`, `dotnet/`, `php/`, `java/`) implement identically. The root
 [`README.md`](../README.md) is the entry point; this document is the reference for the
-exact request/response shapes and the GP-API MOTO/COF specifics behind them.
+exact request/response shapes and the GP-API hosted-fields / MOTO / COF specifics behind them.
 
 ## Overview
 
-A Global Payments sample demonstrating **MOTO (Mail Order / Telephone Order)** payments via
-**GP-API (Unified Payments)** using the official server-side SDKs. An agent-facing "virtual
-terminal" page posts card details to a small backend, which charges the card with
-`entry_mode = MOTO` (exempting it from SCA/3DS2), optionally storing the credential (COF) for
-future merchant-initiated transactions.
+A Global Payments sample demonstrating an agent-facing **MOTO (Mail Order / Telephone Order)**
+virtual terminal on **GP-API (Unified Payments)**. The agent keys the card into Global Payments
+**hosted fields** (secure iframes from `globalpayments.js`), which tokenize it in the browser; the
+backend charges the resulting single-use token with `entry_mode = MOTO` (exempting it from
+SCA/3DS2), optionally storing the credential (COF) for future merchant-initiated transactions. The
+raw PAN never reaches the server.
 
-Two flows, both via the single `/process-payment` endpoint:
-1. **Standard MOTO CIT** — one-off charge, no card storage.
-2. **CIT with Credential on File** — same charge plus a `StoredCredential` block
-   (initiator=CardHolder/Payer, type=Unscheduled, sequence=First); the response's
-   `brand_reference` is surfaced so it can be persisted for later MITs.
+Three endpoints:
+1. `GET /config` — environment metadata for the page.
+2. `POST /get-access-token` — mints the short-lived GP-API token the hosted fields need.
+3. `POST /process-payment` — charges the tokenized card. Two flows:
+   - **Standard MOTO CIT** — one-off charge, no card storage.
+   - **CIT with Credential on File** — same charge plus a `StoredCredential` block
+     (initiator=CardHolder/Payer, type=Unscheduled, sequence=First); the response's
+     `brandReference` is surfaced so it can be persisted for later MITs.
 
 ## Repository layout
 
@@ -46,18 +50,47 @@ Server listens on `PORT` env var, default **8000**, binding `0.0.0.0`. Serves it
 ```json
 { "success": true, "data": { "environment": "sandbox", "merchantName": "GP MOTO Demo" } }
 ```
-(No public key — MOTO is server-side keyed entry; there are no hosted fields.)
+
+Environment metadata only. The access token the hosted fields need is minted by
+`POST /get-access-token`.
+
+### `POST /get-access-token`
+
+No request body. Mints a short-lived GP-API access token, scoped to a single tokenization, and
+returns it for `globalpayments.js` to initialize the hosted fields.
+
+Server behavior:
+- Generate a random `nonce` (16 random bytes, lowercase hex).
+- Compute `secret = sha512(nonce + appKey)` (lowercase hex).
+- `POST` to `https://apis.sandbox.globalpay.com/ucp/accesstoken` with header
+  `X-GP-Version: 2021-03-22` and JSON body:
+  ```json
+  {
+    "app_id": "<GP_API_APP_ID>",
+    "nonce": "<nonce>",
+    "secret": "<sha512(nonce + appKey)>",
+    "grant_type": "client_credentials",
+    "seconds_to_expire": 600,
+    "permissions": ["PMT_POST_Create_Single"]
+  }
+  ```
+- The scope is deliberately minimal: `PMT_POST_Create_Single` allows exactly one card
+  tokenization and nothing else, so the token handed to the browser cannot move money.
+- GP-API responds gzip-compressed; clients that don't decompress automatically
+  (PHP curl, .NET `HttpClient`, Java `HttpClient`) must enable decompression.
+
+Response 200:
+```json
+{ "success": true, "token": "<access token>", "expiresIn": 600 }
+```
+On failure (non-2xx or no token) → 500 with `{ "success": false, "error": "<message>" }`.
 
 ### `POST /process-payment` (JSON body)
 
 Request:
 ```json
 {
-  "card_number": "4263970000005262",
-  "exp_month": "09",
-  "exp_year": "2027",
-  "cvv": "852",
-  "cardholder_name": "James Mason",
+  "payment_reference": "<single-use token from the hosted fields>",
   "amount": "49.99",
   "currency": "EUR",
   "billing_address": {
@@ -69,10 +102,11 @@ Request:
 ```
 
 Server behavior:
-- Validate presence of card_number, exp_month, exp_year, cvv, amount → 400 with
+- Validate presence of `payment_reference` and `amount` → 400 with
   `{ "success": false, "error": "<message>" }` if missing/invalid.
-- Build card object with **entryMethod = MOTO** (`ManualEntryMethod.Moto` / `::MOTO`) — this is
-  the whole point of the sample; never omit it.
+- Build the card from the token: set `CreditCardData.token = payment_reference` and
+  **entryMethod = MOTO** (`ManualEntryMethod.Moto` / `::MOTO`) — this is the whole point of the
+  sample; never omit it. No PAN/expiry/CVV is handled server-side.
 - Attach billing address (AddressType Billing) when provided.
 - Generate a client transaction id (UUID/order id) and pass it via `withClientTransactionId`.
 - If `store_card` is true: attach StoredCredential { initiator: CardHolder (PHP: PAYER),
@@ -104,33 +138,37 @@ the same shape as above.
 
 Only an actual API/SDK exception (`ApiException`, network/auth failure) returns 500 with
 `{ "success": false, "error": "<message>" }`. 400 is used for request validation failures (see
-above). The PAN is never leaked in errors or logs.
+above). No card data is ever leaked in errors or logs.
 
 ### Style rules (all languages)
 
 - Match each language's idiomatic style — this is sample code developers read. Comments explain
-  the MOTO/COF-specific lines, not language basics.
-- No extra abstractions, endpoints, or DB. Shortest working implementation.
-- Full card numbers are never logged; SDK request loggers that would dump the PAN are disabled.
+  the hosted-fields / MOTO / COF-specific lines, not language basics.
+- No extra abstractions or DB. Shortest working implementation.
+- SDK request loggers that would dump request bodies are disabled.
 - Sandbox test data: card `4263970000005262`, any future expiry, cvv `852` → expect CAPTURED.
 
 ## Frontend contract (one page, deployed identically to all 4 language dirs)
 
 - Files: `index.html` + `gp-checkout.css` in each language dir (self-contained, loads
-  DM Sans/DM Mono itself).
+  DM Sans/DM Mono itself). The page loads `https://js.globalpay.com/4.1.11/globalpayments.js`.
 - Design system: the Global Payments design system (`gp-checkout.css` class inventory and the
   drop-in checkout template). Brand compliance: gradient only on header/primary button,
   raspberry only for errors, 150% body line-height, tertiary colors never dominant.
-- Page: agent-facing **MOTO Virtual Terminal**. Plain HTML form (no hosted fields, no card
-  tokenization JS — the agent keys the card in), posting JSON via fetch to `/process-payment`.
-  - Fields: cardholder name, card number, expiry month/year, CVV, amount, currency (EUR/USD/GBP
-    select), billing address block, and a "Store card for future merchant-initiated payments
-    (COF)" checkbox.
-  - States: loading spinner on submit (`.gp-spinner`); result receipt (`.gp-receipt`, transaction
-    id, status badge, masked card, auth code, and brand reference callout when present) styled
+- Page: agent-facing **MOTO Virtual Terminal**.
+  - On load: `POST /get-access-token`, then `GlobalPayments.configure({ accessToken, apiVersion,
+    env: 'sandbox' })`, then render the hosted card fields with
+    `GlobalPayments.creditCard.form('#credit-card-form', …)`.
+  - Fields: amount, currency (EUR/USD/GBP select), billing address block, and a "Store card for
+    future merchant-initiated payments (COF)" checkbox are ordinary inputs; the card number,
+    expiry, CVV, cardholder name and the submit button are hosted-field iframes.
+  - On the hosted form's `token-success`, take `paymentReference`, attach the amount / billing /
+    COF values, and `fetch` JSON to `/process-payment`. `token-error` shows an inline alert.
+  - States: loading spinner (`.gp-spinner`); result receipt (`.gp-receipt`, transaction id,
+    status badge, masked card, auth code, and brand reference callout when present) styled
     success (`.gp-result-badge.success`, `.gp-badge-success`) when `status` is `CAPTURED` or
     decline (`.gp-result-badge.decline`, `.gp-badge-error`) for any other status (chiefly
-    `DECLINED`); inline error alert (`.gp-alert-error`) only for actual request/API failures.
+    `DECLINED`); inline error alert (`.gp-alert-error`) for tokenization or request/API failures.
   - A short info alert explaining what MOTO is and why `entry_mode=MOTO` exempts SCA.
 - Vanilla JS in the page, no build step, no frameworks.
 

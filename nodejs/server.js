@@ -1,15 +1,16 @@
 /**
  * MOTO Payments — GP-API (Unified Payments) · Node.js
  *
- * Agent-facing "virtual terminal": keys a card into a small backend which charges it
- * with entry_mode = MOTO. Flagging a transaction as MOTO exempts it from SCA/3DS2 under
- * PSD2. Optionally stores the credential (COF) so the returned brand reference can be
- * persisted for future merchant-initiated transactions (MITs).
+ * Agent-facing "virtual terminal": the agent keys a card into Global Payments hosted fields
+ * (secure iframes) in the browser, which tokenise it — the PAN never reaches this server. The
+ * backend charges the resulting single-use token with entry_mode = MOTO. Flagging a transaction
+ * as MOTO exempts it from SCA/3DS2 under PSD2. Optionally stores the credential (COF) so the
+ * returned brand reference can be persisted for future merchant-initiated transactions (MITs).
  */
 
 import express from 'express';
 import * as dotenv from 'dotenv';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes, createHash } from 'crypto';
 import {
     ServicesContainer,
     GpApiConfig,
@@ -45,6 +46,9 @@ config.channel = Channel.CardNotPresent;
 config.environment = Environment.Test; // sandbox
 ServicesContainer.configureService(config);
 
+// GP-API access-token endpoint (used to mint the short-lived token the hosted fields need).
+const ACCESS_TOKEN_URL = 'https://apis.sandbox.globalpay.com/ucp/accesstoken';
+
 // Malformed JSON bodies otherwise fall through to Express's default HTML error page;
 // surface the same success:false envelope as every other error path instead.
 app.use((err, req, res, next) => {
@@ -55,8 +59,7 @@ app.use((err, req, res, next) => {
 });
 
 /**
- * Config endpoint — MOTO is server-side keyed entry, so there is no public key or
- * hosted fields to expose to the browser.
+ * Config endpoint — environment metadata for the virtual terminal page.
  */
 app.get('/config', (req, res) => {
     res.json({
@@ -69,31 +72,64 @@ app.get('/config', (req, res) => {
 });
 
 /**
+ * Mint a short-lived GP-API access token for the browser's hosted fields.
+ *
+ * The token is scoped to a single tokenisation (PMT_POST_Create_Single) so the page can
+ * turn the keyed card into a single-use token without exposing the app credentials. The
+ * hash is sha512(nonce + appKey), exactly as the GP-API access-token contract requires.
+ */
+app.post('/get-access-token', async (req, res) => {
+    try {
+        const nonce = randomBytes(16).toString('hex');
+        const secret = createHash('sha512').update(nonce + process.env.GP_API_APP_KEY).digest('hex');
+
+        const response = await fetch(ACCESS_TOKEN_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-GP-Version': '2021-03-22' },
+            body: JSON.stringify({
+                app_id: process.env.GP_API_APP_ID,
+                nonce,
+                secret,
+                grant_type: 'client_credentials',
+                seconds_to_expire: 600,
+                permissions: ['PMT_POST_Create_Single']
+            })
+        });
+
+        const data = await response.json();
+        if (!response.ok || !data.token) {
+            throw new Error(data.error_description || 'Failed to generate access token');
+        }
+
+        res.json({ success: true, token: data.token, expiresIn: data.seconds_to_expire || 600 });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message || 'Failed to generate access token' });
+    }
+});
+
+/**
  * Process a MOTO payment (standard CIT, or CIT + Credential on File when store_card is true).
+ *
+ * The card arrives as a single-use token (payment_reference) from the hosted fields; the PAN
+ * is never seen here.
  */
 app.post('/process-payment', async (req, res) => {
     try {
-        const {
-            card_number, exp_month, exp_year, cvv,
-            cardholder_name, amount, currency,
-            billing_address, store_card
-        } = req.body;
+        const { payment_reference, amount, currency, billing_address, store_card } = req.body;
 
-        // Validate required fields (never echo the PAN back).
-        if (!card_number || !exp_month || !exp_year || !cvv || !amount) {
+        // Validate required fields.
+        if (!payment_reference || !amount) {
             return res.status(400).json({
                 success: false,
-                error: 'Missing required field(s): card_number, exp_month, exp_year, cvv, amount'
+                error: 'Missing required field(s): payment_reference, amount'
             });
         }
 
+        // The hosted fields already captured and tokenised the card; charge the token with
+        // entry_mode = MOTO — the whole point of this sample (flags it as MOTO / SCA-exempt).
         const card = new CreditCardData();
-        card.number = card_number;
-        card.expMonth = exp_month;
-        card.expYear = exp_year;
-        card.cvn = cvv;
-        card.cardHolderName = cardholder_name;
-        card.entryMethod = ManualEntryMethod.MOTO; // the whole point — flags this as MOTO / SCA-exempt
+        card.token = payment_reference;
+        card.entryMethod = ManualEntryMethod.MOTO;
 
         // Build the charge; MOTO is CNP so a client transaction id ties it back to our order.
         const orderId = randomUUID();
@@ -140,7 +176,7 @@ app.post('/process-payment', async (req, res) => {
             }
         });
     } catch (error) {
-        // Both SDK ApiError and generic errors surface only a message — never the PAN.
+        // Both SDK ApiError and generic errors surface only a message — never card data.
         const message = error instanceof ApiError ? error.message : (error.message || 'Payment processing failed');
         res.status(500).json({ success: false, error: message });
     }

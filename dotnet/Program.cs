@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using GlobalPayments.Api;
 using GlobalPayments.Api.Entities;
@@ -9,14 +11,23 @@ namespace MotoPaymentSample;
 /// <summary>
 /// MOTO (Mail Order / Telephone Order) Payment Sample
 ///
-/// Demonstrates a virtual-terminal style flow: an agent keys a card in directly
-/// (no hosted fields/tokenization) and the server charges it via GP-API with
-/// entry_mode = MOTO, which exempts the transaction from SCA/3DS2 under PSD2.
-/// Optionally stores the card as a Credential on File (COF) for later
-/// merchant-initiated transactions.
+/// Demonstrates a virtual-terminal style flow: an agent keys a card into Global Payments
+/// hosted fields (secure iframes) which tokenize it in the browser, and the server charges
+/// the resulting single-use token via GP-API with entry_mode = MOTO, which exempts the
+/// transaction from SCA/3DS2 under PSD2. Optionally stores the card as a Credential on File
+/// (COF) for later merchant-initiated transactions.
 /// </summary>
 public class Program
 {
+    // GP-API responds gzip-compressed; enable automatic decompression so the body is plain JSON.
+    private static readonly HttpClient Http = new(new HttpClientHandler
+    {
+        AutomaticDecompression = System.Net.DecompressionMethods.All
+    });
+
+    // GP-API access-token endpoint (used to mint the short-lived token the hosted fields need).
+    private const string AccessTokenUrl = "https://apis.sandbox.globalpay.com/ucp/accesstoken";
+
     public static void Main(string[] args)
     {
         DotEnv.Load();
@@ -37,9 +48,9 @@ public class Program
     }
 
     /// <summary>
-    /// Configures the GP-API SDK for MOTO (card-not-present, manually keyed) transactions.
-    /// No RequestLogger is set — MOTO handles raw PANs and the SDK's request logger would
-    /// otherwise dump them.
+    /// Configures the GP-API SDK for MOTO (card-not-present) transactions. The card reaches
+    /// the server only as a single-use token from the hosted fields, so no raw PAN is handled
+    /// here; no RequestLogger is set to keep request bodies out of the logs regardless.
     /// </summary>
     private static void ConfigureGlobalPaymentsSDK()
     {
@@ -72,12 +83,73 @@ public class Program
             }
         }));
 
+        ConfigureAccessTokenEndpoint(app);
         ConfigurePaymentEndpoint(app);
     }
 
     /// <summary>
-    /// Charges a manually-keyed card via GP-API MOTO. Body is snake_case JSON per the sample
-    /// contract; the response is camelCase (ASP.NET Core minimal APIs default to the Web JSON
+    /// Mints a short-lived GP-API access token for the browser's hosted fields. The token is
+    /// scoped to a single tokenization (PMT_POST_Create_Single) so the page can turn the keyed
+    /// card into a single-use token without exposing the app credentials. The hash is
+    /// sha512(nonce + appKey), exactly as the GP-API access-token contract requires.
+    /// </summary>
+    private static void ConfigureAccessTokenEndpoint(WebApplication app)
+    {
+        app.MapPost("/get-access-token", async () =>
+        {
+            var appId = EnvVar("GP_API_APP_ID");
+            var appKey = EnvVar("GP_API_APP_KEY");
+
+            var nonce = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+            var secret = Convert.ToHexString(
+                SHA512.HashData(Encoding.UTF8.GetBytes(nonce + appKey))).ToLowerInvariant();
+
+            var tokenRequest = new
+            {
+                app_id = appId,
+                nonce,
+                secret,
+                grant_type = "client_credentials",
+                seconds_to_expire = 600,
+                permissions = new[] { "PMT_POST_Create_Single" }
+            };
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, AccessTokenUrl);
+            request.Headers.Add("X-GP-Version", "2021-03-22");
+            request.Content = new StringContent(
+                JsonSerializer.Serialize(tokenRequest), Encoding.UTF8, "application/json");
+
+            try
+            {
+                using var response = await Http.SendAsync(request);
+                using var doc = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+                var root = doc.RootElement;
+
+                if (!response.IsSuccessStatusCode ||
+                    !root.TryGetProperty("token", out var tokenEl) ||
+                    tokenEl.ValueKind != JsonValueKind.String)
+                {
+                    var error = root.TryGetProperty("error_description", out var e)
+                        ? e.GetString() : "Failed to generate access token";
+                    return Results.Json(new { success = false, error }, statusCode: 500);
+                }
+
+                var expiresIn = root.TryGetProperty("seconds_to_expire", out var s) &&
+                    s.ValueKind == JsonValueKind.Number ? s.GetInt32() : 600;
+
+                return Results.Ok(new { success = true, token = tokenEl.GetString(), expiresIn });
+            }
+            catch (Exception ex)
+            {
+                return Results.Json(new { success = false, error = ex.Message }, statusCode: 500);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Charges the tokenized card via GP-API MOTO. Body is snake_case JSON per the sample
+    /// contract; the card arrives as a single-use token (payment_reference) from the hosted
+    /// fields. The response is camelCase (ASP.NET Core minimal APIs default to the Web JSON
     /// naming policy, so plain camelCase anonymous-object properties round-trip correctly).
     /// </summary>
     private static void ConfigurePaymentEndpoint(WebApplication app)
@@ -99,31 +171,23 @@ public class Program
             string? Str(string name) =>
                 root.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null ? v.GetString() : null;
 
-            var cardNumber = Str("card_number");
-            var expMonth = Str("exp_month");
-            var expYear = Str("exp_year");
-            var cvv = Str("cvv");
+            var paymentReference = Str("payment_reference");
             var amountStr = Str("amount");
-            var cardholderName = Str("cardholder_name");
             var currency = Str("currency") ?? "EUR";
 
-            if (string.IsNullOrEmpty(cardNumber) || string.IsNullOrEmpty(expMonth) ||
-                string.IsNullOrEmpty(expYear) || string.IsNullOrEmpty(cvv) ||
+            if (string.IsNullOrEmpty(paymentReference) ||
                 string.IsNullOrEmpty(amountStr) ||
                 !decimal.TryParse(amountStr, out var amount) || amount <= 0)
             {
                 return Results.Json(new { success = false, error = "Missing or invalid required fields" }, statusCode: 400);
             }
 
-            // entryMethod = MOTO is the whole point of this sample: it flags the transaction
-            // as agent-keyed so GP-API exempts it from SCA/3DS2.
+            // The hosted fields already captured and tokenized the card. entryMethod = MOTO is
+            // the whole point of this sample: it flags the transaction as agent-keyed so GP-API
+            // exempts it from SCA/3DS2.
             var card = new CreditCardData
             {
-                Number = cardNumber,
-                ExpMonth = int.Parse(expMonth),
-                ExpYear = int.Parse(expYear),
-                Cvn = cvv,
-                CardHolderName = cardholderName,
+                Token = paymentReference,
                 EntryMethod = ManualEntryMethod.Moto
             };
 
