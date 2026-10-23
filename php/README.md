@@ -9,7 +9,7 @@ SCA / 3D Secure 2 under PSD2. The PAN never reaches the server.
 
 ## Requirements
 
-- PHP 8.0 or later
+- PHP 8.2.35+, 8.3.36+, 8.4.27+, or 8.5.12+
 - Composer
 - Global Payments GP-API sandbox app credentials
 
@@ -46,7 +46,7 @@ SCA / 3D Secure 2 under PSD2. The PAN never reaches the server.
    ```
    Or manually:
    ```bash
-   php -S 0.0.0.0:8000 router.php
+   ./run.sh
    ```
    Then open http://localhost:8000.
 
