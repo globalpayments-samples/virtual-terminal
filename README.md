@@ -12,7 +12,7 @@ Because the card is tokenized client-side, the raw card number (PAN) never reach
 application — the whole point of using hosted fields.
 
 See the official docs: [GP-API MOTO](https://developer.globalpayments.com/docs/moto) ·
-[Hosted Fields](https://developer.globalpayments.com/docs/integration-options/hosted-fields).
+[Hosted Fields](https://developer.globalpayments.com/docs/payments/online/hosted-fields-overview).
 
 ## Available Implementations
 
