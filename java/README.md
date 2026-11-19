@@ -20,7 +20,7 @@ Both flows go through the single `POST /process-payment` endpoint, toggled by th
 
 ## Requirements
 
-- Java 21+ (image uses Java 21; SDK targets Java 23 source/target)
+- Java 21+ (the image and the pom both use Java 21)
 - Maven
 - Global Payments GP-API sandbox credentials
 
