@@ -9,7 +9,7 @@ SCA / 3D Secure 2 under PSD2. The PAN never reaches the server.
 
 ## Requirements
 
-- Node.js 18.x or later
+- Node.js 24.x or later
 - npm (Node Package Manager)
 - Global Payments GP-API sandbox app credentials
 
