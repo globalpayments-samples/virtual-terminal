@@ -1,29 +1,31 @@
 <?php
+// Router for the PHP built-in server: serve the page, its assets and the
+// endpoint scripts, and nothing else (no .env, composer files or vendor/).
+// The frontend calls /config, /get-access-token and /process-payment without
+// the extension, so those are mapped to their scripts first.
+$path = rawurldecode(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '/');
 
-/**
- * Router for PHP's built-in server (php -S host:port router.php).
- *
- * Maps the clean endpoint paths used by the frontend (/config, /process-payment) to
- * their PHP scripts, and otherwise lets the built-in server serve static files
- * (index.html, gp-checkout.css) directly.
- */
-
-$path = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
-
-if ($path === '/config') {
-    require __DIR__ . '/config.php';
+$routes = [
+    '/config' => 'config.php',
+    '/get-access-token' => 'get-access-token.php',
+    '/process-payment' => 'process-payment.php',
+];
+if (isset($routes[$path])) {
+    require __DIR__ . '/' . $routes[$path];
     return true;
 }
 
-if ($path === '/get-access-token') {
-    require __DIR__ . '/get-access-token.php';
-    return true;
+if ($path === '/') {
+    return false;
 }
 
-if ($path === '/process-payment') {
-    require __DIR__ . '/process-payment.php';
-    return true;
+$isAsset = preg_match('#^/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_.-]+\.(?:html|css|js|png|jpe?g|gif|svg|ico|webp|woff2?)$#', $path);
+$isEndpoint = preg_match('#^/[A-Za-z0-9_-]+\.php$#', $path) && $path !== '/router.php';
+$isHidden = preg_match('#(^|/)(\.|vendor/|node_modules/)#', $path);
+
+if (($isAsset || $isEndpoint) && !$isHidden) {
+    return false;
 }
 
-// Let the built-in server handle static files (index.html, gp-checkout.css, etc.)
-return false;
+http_response_code(404);
+echo 'Not Found';
