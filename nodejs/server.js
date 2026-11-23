@@ -12,6 +12,7 @@ import express from 'express';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { readFileSync } from 'fs';
 import { randomUUID, randomBytes, createHash } from 'crypto';
 import {
     ServicesContainer,
@@ -38,12 +39,14 @@ const port = process.env.PORT || 8000;
 // Serve only the frontend files, never the server's own files
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const frontendFiles = ['index.html', 'gp-checkout.css'];
+const indexHtml = readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    res.type('html').send(indexHtml);
 });
 for (const file of frontendFiles) {
+    const content = readFileSync(path.join(__dirname, file), 'utf8');
     app.get(`/${file}`, (req, res) => {
-        res.sendFile(path.join(__dirname, file));
+        res.type(path.extname(file)).send(content);
     });
 }
 app.use(express.urlencoded({ extended: true }));
