@@ -16,8 +16,8 @@ SCA / 3D Secure 2 under PSD2. The PAN never reaches the server.
 ## Project Structure
 
 - `router.php` - Routes `/config`, `/get-access-token` and `/process-payment` to their
-  scripts for `php -S`; everything else (`index.html`, `gp-checkout.css`) is served as a
-  static file
+  scripts for `php -S`, serves the page and its assets (`index.html`, `gp-checkout.css`)
+  and returns 404 for everything else (`.env`, composer files, `vendor/`)
 - `process-payment.php` - GP-API config and the MOTO payment endpoint
 - `get-access-token.php` - Mints the short-lived GP-API access token the hosted fields need
 - `config.php` - Environment metadata endpoint
