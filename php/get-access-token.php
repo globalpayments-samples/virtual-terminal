@@ -31,11 +31,12 @@ header('Content-Type: application/json');
 
 // Mutable: some container env-file mechanisms don't strip inline `#comment` suffixes
 // (e.g. the `#gitleaks:allow` markers), so prefer the values parsed from .env itself.
+// safeLoad: under Docker Compose there is no .env file, the values come from the environment
 $dotenv = Dotenv::createMutable(__DIR__);
-$dotenv->load();
+$dotenv->safeLoad();
 
-$appId = $_ENV['GP_API_APP_ID'];
-$appKey = $_ENV['GP_API_APP_KEY'];
+$appId = $_ENV['GP_API_APP_ID'] ?? getenv('GP_API_APP_ID');
+$appKey = $_ENV['GP_API_APP_KEY'] ?? getenv('GP_API_APP_KEY');
 
 $nonce = bin2hex(random_bytes(16));
 $secret = hash('sha512', $nonce . $appKey);
