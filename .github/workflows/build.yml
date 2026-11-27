@@ -1,0 +1,20 @@
+# Builds every backend in this repo on each PR and push to main.
+# The steps live in globalpayments-samples/.github (sample-build.yml).
+name: Build
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    uses: globalpayments-samples/.github/.github/workflows/sample-build.yml@main
