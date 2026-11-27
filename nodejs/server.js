@@ -27,7 +27,9 @@ import {
     StoredCredentialInitiator,
     StoredCredentialType,
     StoredCredentialSequence,
-    ApiError
+    ApiError,
+    GpApiAuthorizationRequestBuilder,
+    PaymentEntryMode
 } from 'globalpayments-api';
 
 // Load environment variables from .env file
@@ -60,6 +62,19 @@ config.country = process.env.GP_API_COUNTRY || 'IE';
 config.channel = Channel.CardNotPresent;
 config.environment = Environment.Test; // sandbox
 ServicesContainer.configureService(config);
+
+// The Node SDK only maps entryMethod to entry_mode when entryMethod is truthy, and
+// ManualEntryMethod.MOTO is 0, so without this a MOTO card goes to GP-API as ECOM
+// and is not treated as MOTO at all. Map it here, everything else is left to the SDK.
+const sdkGetEntryMode = GpApiAuthorizationRequestBuilder.prototype.getEntryMode;
+GpApiAuthorizationRequestBuilder.prototype.getEntryMode = function (builder, channel) {
+    const method = builder.paymentMethod;
+    if (channel === Channel.CardNotPresent && method instanceof CreditCardData &&
+        method.readerPresent === false && method.entryMethod === ManualEntryMethod.MOTO) {
+        return PaymentEntryMode.MOTO;
+    }
+    return sdkGetEntryMode.call(this, builder, channel);
+};
 
 // GP-API access-token endpoint (used to mint the short-lived token the hosted fields need).
 const ACCESS_TOKEN_URL = 'https://apis.sandbox.globalpay.com/ucp/accesstoken';
