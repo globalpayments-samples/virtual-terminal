@@ -50,13 +50,14 @@ function configureSdk(): void
     // Mutable: some container env-file mechanisms don't strip inline `#comment`
     // suffixes (e.g. the `#gitleaks:allow` markers below), so prefer the values
     // parsed from .env itself, which does strip them correctly.
+    // safeLoad: under Docker Compose there is no .env file, the values come from the environment
     $dotenv = Dotenv::createMutable(__DIR__);
-    $dotenv->load();
+    $dotenv->safeLoad();
 
     $config = new GpApiConfig();
-    $config->appId = $_ENV['GP_API_APP_ID'];
-    $config->appKey = $_ENV['GP_API_APP_KEY'];
-    $config->country = $_ENV['GP_API_COUNTRY'] ?? 'IE';
+    $config->appId = $_ENV['GP_API_APP_ID'] ?? getenv('GP_API_APP_ID');
+    $config->appKey = $_ENV['GP_API_APP_KEY'] ?? getenv('GP_API_APP_KEY');
+    $config->country = $_ENV['GP_API_COUNTRY'] ?? (getenv('GP_API_COUNTRY') ?: 'IE');
     $config->channel = Channel::CardNotPresent;
     // No requestLogger is configured: the default SDK logging would otherwise dump the PAN.
 
