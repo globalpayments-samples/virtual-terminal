@@ -167,9 +167,17 @@ public class Program
             }
             using var _ = doc;
             var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return Results.Json(new { success = false, error = "Invalid JSON body" }, statusCode: 400);
+            }
 
+            // Strings as sent by the page, numbers (an amount of 49.99) as their JSON text
             string? Str(string name) =>
-                root.TryGetProperty(name, out var v) && v.ValueKind != JsonValueKind.Null ? v.GetString() : null;
+                !root.TryGetProperty(name, out var v) ? null
+                : v.ValueKind == JsonValueKind.String ? v.GetString()
+                : v.ValueKind == JsonValueKind.Number ? v.GetRawText()
+                : null;
 
             var paymentReference = Str("payment_reference");
             var amountStr = Str("amount");

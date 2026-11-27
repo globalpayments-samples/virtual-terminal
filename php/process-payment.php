@@ -83,6 +83,11 @@ try {
             exit;
         }
     }
+    if (!is_numeric($body['amount']) || (float) $body['amount'] <= 0) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'Amount must be a positive number']);
+        exit;
+    }
 
     // The hosted fields already captured and tokenised the card; charge the token with
     // entryMethod = MOTO — the whole point of this sample (flags it as MOTO / SCA-exempt).

@@ -139,6 +139,10 @@ app.post('/process-payment', async (req, res) => {
                 error: 'Missing required field(s): payment_reference, amount'
             });
         }
+        const chargeAmount = Number(amount);
+        if (!Number.isFinite(chargeAmount) || chargeAmount <= 0) {
+            return res.status(400).json({ success: false, error: 'Amount must be a positive number' });
+        }
 
         // The hosted fields already captured and tokenised the card; charge the token with
         // entry_mode = MOTO — the whole point of this sample (flags it as MOTO / SCA-exempt).
@@ -149,7 +153,7 @@ app.post('/process-payment', async (req, res) => {
         // Build the charge; MOTO is CNP so a client transaction id ties it back to our order.
         const orderId = randomUUID();
         let builder = card
-            .charge(Number(amount))
+            .charge(chargeAmount)
             .withCurrency(currency || 'EUR')
             .withClientTransactionId(orderId);
 
